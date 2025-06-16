@@ -1,1 +1,1 @@
-web: uvicorn file_storage_api:app --host 0.0.0.0 --port $PORT
+web: uvicorn multi_app_api:app --host 0.0.0.0 --port $PORT
