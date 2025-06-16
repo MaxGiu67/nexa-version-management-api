@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn file_storage_api:app --host 0.0.0.0 --port $PORT"
+
+[[services]]
+name = "version-api"
+type = "web"
+
+[services.version-api]
+port = 8000
+
+[volumes]
+# Volume persistente per file uploads
+uploads = { mount = "/app/uploaded_files" }
