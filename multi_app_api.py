@@ -1245,5 +1245,13 @@ async def get_user_details(user_id: int):
 # Run the application
 if __name__ == "__main__":
     import uvicorn
+    # Railway sometimes sets PORT to MySQL port (3306), we need to handle this
     port = int(os.environ.get("PORT", 8000))
+    
+    # If PORT is 3306 (MySQL port), use a different port
+    if port == 3306:
+        logger.warning(f"PORT {port} is MySQL port, using 8080 instead")
+        port = 8080
+    
+    logger.info(f"Starting server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
