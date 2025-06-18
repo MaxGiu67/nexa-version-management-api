@@ -70,7 +70,7 @@ def test_check_updates():
     for test in test_cases:
         try:
             response = requests.get(
-                f"{BASE_URL}/api/v1/app-version/check",
+                f"{BASE_URL}/api/v2/app-version/check",
                 params=test["params"]
             )
             
@@ -106,7 +106,7 @@ def test_latest_version():
     for platform in platforms:
         try:
             response = requests.get(
-                f"{BASE_URL}/api/v1/app-version/latest",
+                f"{BASE_URL}/api/v2/app-version/latest",
                 params={"platform": platform}
             )
             
@@ -152,7 +152,7 @@ def test_log_update():
         
         # Senza token, ci aspettiamo 403 (non autorizzato)
         response = requests.post(
-            f"{BASE_URL}/api/v1/app-version/log-update",
+            f"{BASE_URL}/api/v2/app-version/log-update",
             json=data,
             headers={"Content-Type": "application/json"}
         )

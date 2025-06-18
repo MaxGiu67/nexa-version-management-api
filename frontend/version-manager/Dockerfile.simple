@@ -1,0 +1,16 @@
+# Use pre-built files
+FROM node:18-alpine
+WORKDIR /app
+
+# Install serve
+RUN npm install -g serve
+
+# Copy pre-built files
+COPY build ./build
+
+# Expose port
+ENV PORT=3000
+EXPOSE $PORT
+
+# Start server
+CMD ["serve", "-s", "build", "-l", "$PORT"]

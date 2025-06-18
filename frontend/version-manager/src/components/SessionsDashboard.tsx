@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
-import { Users, Clock, TrendingUp, Calendar, Activity, Smartphone, Globe, RefreshCw } from 'lucide-react';
+import { Users, Clock, TrendingUp, Calendar, Activity, Smartphone, Globe, RefreshCw, User } from 'lucide-react';
 import api from '../services/api';
+import UsersDashboard from './UsersDashboard';
 
 interface SessionStats {
   total_users: number;
@@ -42,7 +43,7 @@ const SessionsDashboard: React.FC<Props> = ({ appIdentifier }) => {
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<number>(7); // giorni
-  const [view, setView] = useState<'overview' | 'sessions' | 'daily'>('overview');
+  const [view, setView] = useState<'overview' | 'sessions' | 'daily' | 'users'>('overview');
 
   useEffect(() => {
     fetchSessionData();
@@ -139,14 +140,17 @@ const SessionsDashboard: React.FC<Props> = ({ appIdentifier }) => {
         </Title>
         <Controls>
           <ViewTabs>
-            <TabButton active={view === 'overview'} onClick={() => setView('overview')}>
+            <TabButton $active={view === 'overview'} onClick={() => setView('overview')}>
               Panoramica
             </TabButton>
-            <TabButton active={view === 'sessions'} onClick={() => setView('sessions')}>
+            <TabButton $active={view === 'sessions'} onClick={() => setView('sessions')}>
               Sessioni Recenti
             </TabButton>
-            <TabButton active={view === 'daily'} onClick={() => setView('daily')}>
+            <TabButton $active={view === 'daily'} onClick={() => setView('daily')}>
               Andamento Giornaliero
+            </TabButton>
+            <TabButton $active={view === 'users'} onClick={() => setView('users')}>
+              Utenti
             </TabButton>
           </ViewTabs>
           <Select value={timeRange} onChange={(e) => setTimeRange(Number(e.target.value))}>
@@ -316,6 +320,10 @@ const SessionsDashboard: React.FC<Props> = ({ appIdentifier }) => {
           </DailyStatsContainer>
         </Section>
       )}
+
+      {view === 'users' && (
+        <UsersDashboard appIdentifier={appIdentifier} />
+      )}
     </Container>
   );
 };
@@ -356,14 +364,14 @@ const ViewTabs = styled.div`
   padding: 4px;
 `;
 
-const TabButton = styled.button<{ active: boolean }>`
+const TabButton = styled.button<{ $active: boolean }>`
   padding: 8px 16px;
-  background: ${props => props.active ? 'white' : 'transparent'};
+  background: ${props => props.$active ? 'white' : 'transparent'};
   border: none;
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: ${props => props.active ? '#1f2937' : '#6b7280'};
+  color: ${props => props.$active ? '#1f2937' : '#6b7280'};
   cursor: pointer;
   transition: all 0.2s;
 

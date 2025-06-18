@@ -18,6 +18,7 @@ import { VersionsList } from './components/VersionsList';
 import MainDashboard from './components/MainDashboard';
 import ApplicationsManager from './components/ApplicationsManager';
 import AppDetail from './components/AppDetail';
+import UsersDashboard from './components/UsersDashboard';
 
 const AppContainer = styled.div`
   min-height: 100vh;
@@ -25,8 +26,8 @@ const AppContainer = styled.div`
   display: flex;
 `;
 
-const Sidebar = styled.aside<{ isOpen: boolean }>`
-  width: ${props => props.isOpen ? '280px' : '80px'};
+const Sidebar = styled.aside<{ $isOpen: boolean }>`
+  width: ${props => props.$isOpen ? '280px' : '80px'};
   background: #1a237e;
   color: white;
   transition: width 0.3s ease;
@@ -36,12 +37,12 @@ const Sidebar = styled.aside<{ isOpen: boolean }>`
   overflow-y: auto;
   
   @media (max-width: 768px) {
-    width: ${props => props.isOpen ? '280px' : '0'};
-    transform: translateX(${props => props.isOpen ? '0' : '-100%'});
+    width: ${props => props.$isOpen ? '280px' : '0'};
+    transform: translateX(${props => props.$isOpen ? '0' : '-100%'});
   }
 `;
 
-const SidebarHeader = styled.div<{ isOpen: boolean }>`
+const SidebarHeader = styled.div<{ $isOpen: boolean }>`
   padding: 1.5rem 1rem;
   border-bottom: 1px solid #2c3e8b;
   display: flex;
@@ -64,7 +65,7 @@ const SidebarHeader = styled.div<{ isOpen: boolean }>`
     font-size: 1.1rem;
     font-weight: 600;
     white-space: nowrap;
-    opacity: ${props => props.isOpen ? '1' : '0'};
+    opacity: ${props => props.$isOpen ? '1' : '0'};
     transition: opacity 0.3s ease;
   }
 `;
@@ -73,7 +74,7 @@ const Nav = styled.nav`
   padding: 1rem 0;
 `;
 
-const NavItem = styled(NavLink)<{ isOpen: boolean }>`
+const NavItem = styled(NavLink)<{ $isOpen: boolean }>`
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -96,7 +97,7 @@ const NavItem = styled(NavLink)<{ isOpen: boolean }>`
   
   .label {
     white-space: nowrap;
-    opacity: ${props => props.isOpen ? '1' : '0'};
+    opacity: ${props => props.$isOpen ? '1' : '0'};
     transition: opacity 0.3s ease;
   }
   
@@ -106,9 +107,9 @@ const NavItem = styled(NavLink)<{ isOpen: boolean }>`
   }
 `;
 
-const MainContent = styled.main<{ sidebarOpen: boolean }>`
+const MainContent = styled.main<{ $sidebarOpen: boolean }>`
   flex: 1;
-  margin-left: ${props => props.sidebarOpen ? '280px' : '80px'};
+  margin-left: ${props => props.$sidebarOpen ? '280px' : '80px'};
   transition: margin-left 0.3s ease;
   
   @media (max-width: 768px) {
@@ -182,8 +183,8 @@ const ToggleButton = styled.button`
   }
 `;
 
-const Overlay = styled.div<{ show: boolean }>`
-  display: ${props => props.show ? 'block' : 'none'};
+const Overlay = styled.div<{ $show: boolean }>`
+  display: ${props => props.$show ? 'block' : 'none'};
   position: fixed;
   top: 0;
   left: 0;
@@ -238,15 +239,15 @@ function App() {
     { path: '/apps', icon: Database, label: 'Applicazioni' },
     { path: '/upload', icon: Upload, label: 'Upload File' },
     { path: '/versions', icon: List, label: 'Gestisci Versioni' },
-    { path: '/users', icon: Users, label: 'Utenti', disabled: true },
+    { path: '/users', icon: Users, label: 'Utenti' },
     { path: '/settings', icon: Settings, label: 'Impostazioni', disabled: true },
   ];
 
   return (
     <Router>
       <AppContainer>
-        <Sidebar isOpen={sidebarOpen}>
-          <SidebarHeader isOpen={sidebarOpen}>
+        <Sidebar $isOpen={sidebarOpen}>
+          <SidebarHeader $isOpen={sidebarOpen}>
             <div className="logo">
               <Database size={20} />
             </div>
@@ -258,7 +259,7 @@ function App() {
               <NavItem
                 key={item.path}
                 to={item.path}
-                isOpen={sidebarOpen}
+                $isOpen={sidebarOpen}
                 className={({ isActive }) => (isActive && item.exact) ? 'active' : ''}
                 style={{ 
                   opacity: item.disabled ? 0.5 : 1,
@@ -276,9 +277,9 @@ function App() {
           </ToggleButton>
         </Sidebar>
 
-        <Overlay show={sidebarOpen} onClick={() => setSidebarOpen(false)} />
+        <Overlay $show={sidebarOpen} onClick={() => setSidebarOpen(false)} />
 
-        <MainContent sidebarOpen={sidebarOpen}>
+        <MainContent $sidebarOpen={sidebarOpen}>
           <TopBar>
             <div className="left">
               <button 
@@ -328,13 +329,7 @@ function App() {
             />
             <Route 
               path="/users" 
-              element={
-                <ComingSoon>
-                  <Users className="icon" size={64} />
-                  <h2>Gestione Utenti</h2>
-                  <p>Questa funzionalità sarà disponibile presto</p>
-                </ComingSoon>
-              } 
+              element={<UsersDashboard />} 
             />
             <Route 
               path="/settings" 

@@ -22,13 +22,13 @@ echo "📍 Health check:"
 curl -s http://localhost:8000/health | python -m json.tool
 
 echo -e "\n📍 Check updates (1.0.0 -> latest):"
-curl -s "http://localhost:8000/api/v1/app-version/check?current_version=1.0.0&platform=android" | python -m json.tool
+curl -s "http://localhost:8000/api/v2/app-version/check?current_version=1.0.0&platform=android" | python -m json.tool
 
 echo -e "\n📍 Latest version:"
-curl -s "http://localhost:8000/api/v1/app-version/latest?platform=android" | python -m json.tool
+curl -s "http://localhost:8000/api/v2/app-version/latest?platform=android" | python -m json.tool
 
 echo -e "\n📍 Current version (no update):"
-curl -s "http://localhost:8000/api/v1/app-version/check?current_version=1.2.0&platform=android" | python -m json.tool
+curl -s "http://localhost:8000/api/v2/app-version/check?current_version=1.2.0&platform=android" | python -m json.tool
 
 # Ferma il server
 echo -e "\n🛑 Stopping server..."

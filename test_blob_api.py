@@ -31,7 +31,7 @@ def test_blob_api():
     # Test 2: Verifica endpoint base
     print("\n2. 📱 Testing base version endpoints...")
     try:
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/latest?platform=android")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/latest?platform=android")
         data = response.json()
         print(f"✅ Latest version: {data.get('version')} (code {data.get('versionCode')})")
         if data.get('downloadUrl'):
@@ -44,7 +44,7 @@ def test_blob_api():
     # Test 3: Storage info
     print("\n3. 💾 Testing storage info...")
     try:
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/storage-info")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/storage-info")
         data = response.json()
         print(f"✅ Storage info:")
         print(f"   Files: {data.get('total_files')}")
@@ -56,7 +56,7 @@ def test_blob_api():
     # Test 4: Lista file
     print("\n4. 📂 Testing file list...")
     try:
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/files")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/files")
         data = response.json()
         print(f"✅ Files in database: {len(data.get('files', []))}")
         for file_info in data.get('files', [])[:3]:  # Mostra primi 3
@@ -82,7 +82,7 @@ def test_blob_api():
                 'changelog': '{"changes": ["Test BLOB upload", "Database storage"]}'
             }
             
-            response = requests.post(f"{BASE_URL}/api/v1/app-version/upload", files=files, data=data)
+            response = requests.post(f"{BASE_URL}/api/v2/app-version/upload", files=files, data=data)
             
             if response.status_code == 200:
                 result = response.json()
@@ -130,7 +130,7 @@ def test_blob_api():
     # Test 7: Verifica check updates con file
     print("\n7. 🔄 Testing check updates with file...")
     try:
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/check?current_version=1.0.0&platform=android")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/check?current_version=1.0.0&platform=android")
         data = response.json()
         if data.get('hasUpdate'):
             print(f"✅ Update available: {data.get('latestVersion')}")
@@ -145,7 +145,7 @@ def test_blob_api():
         print(f"❌ Check updates error: {e}")
     
     print(f"\n🌐 Web Interface available at:")
-    print(f"   📱 Upload Form: {BASE_URL}/api/v1/app-version/upload-form")
+    print(f"   📱 Upload Form: {BASE_URL}/api/v2/app-version/upload-form")
     print(f"   📚 API Docs: {BASE_URL}/docs")
     
     print(f"\n✅ BLOB storage testing completed!")

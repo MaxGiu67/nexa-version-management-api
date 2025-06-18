@@ -99,7 +99,7 @@ def test_check_updates():
     
     for test in test_cases:
         try:
-            response = requests.get(f"{BASE_URL}/api/v1/app-version/check", params=test["params"])
+            response = requests.get(f"{BASE_URL}/api/v2/app-version/check", params=test["params"])
             
             if response.status_code != 200:
                 all_passed = False
@@ -144,7 +144,7 @@ def test_latest_version():
     
     for platform in platforms:
         try:
-            response = requests.get(f"{BASE_URL}/api/v1/app-version/latest", params={"platform": platform})
+            response = requests.get(f"{BASE_URL}/api/v2/app-version/latest", params={"platform": platform})
             
             if response.status_code != 200:
                 all_passed = False
@@ -212,22 +212,22 @@ def test_edge_cases():
     test_cases = [
         {
             "name": "Versione formato invalido",
-            "url": f"{BASE_URL}/api/v1/app-version/check?current_version=1.0&platform=android",
+            "url": f"{BASE_URL}/api/v2/app-version/check?current_version=1.0&platform=android",
             "expect_error": True
         },
         {
             "name": "Piattaforma inesistente",
-            "url": f"{BASE_URL}/api/v1/app-version/check?current_version=1.0.0&platform=windows",
+            "url": f"{BASE_URL}/api/v2/app-version/check?current_version=1.0.0&platform=windows",
             "expect_success": True  # Dovrebbe funzionare ma non trovare versioni specifiche
         },
         {
             "name": "Parametri mancanti",
-            "url": f"{BASE_URL}/api/v1/app-version/check",
+            "url": f"{BASE_URL}/api/v2/app-version/check",
             "expect_error": True
         },
         {
             "name": "Versione futura",
-            "url": f"{BASE_URL}/api/v1/app-version/check?current_version=999.999.999&platform=android",
+            "url": f"{BASE_URL}/api/v2/app-version/check?current_version=999.999.999&platform=android",
             "expect_success": True,
             "expect_no_update": True
         }
@@ -268,8 +268,8 @@ def test_performance():
     
     endpoints = [
         ("/health", "Health Check"),
-        ("/api/v1/app-version/check?current_version=1.0.0&platform=android", "Check Updates"),
-        ("/api/v1/app-version/latest?platform=android", "Latest Version")
+        ("/api/v2/app-version/check?current_version=1.0.0&platform=android", "Check Updates"),
+        ("/api/v2/app-version/latest?platform=android", "Latest Version")
     ]
     
     all_passed = True
@@ -312,11 +312,11 @@ def test_data_integrity():
     
     try:
         # Ottieni ultima versione
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/latest?platform=all")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/latest?platform=all")
         latest_data = response.json()
         
         # Verifica con check updates
-        response = requests.get(f"{BASE_URL}/api/v1/app-version/check?current_version=0.1.0&platform=all")
+        response = requests.get(f"{BASE_URL}/api/v2/app-version/check?current_version=0.1.0&platform=all")
         check_data = response.json()
         
         # I dati dovrebbero essere consistenti

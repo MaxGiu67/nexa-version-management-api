@@ -17,6 +17,15 @@ import uuid
 from contextlib import contextmanager
 import logging
 import io
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables based on environment
+env = os.environ.get('ENVIRONMENT', 'local')
+if env == 'local':
+    load_dotenv('.env.local')
+else:
+    load_dotenv('.env.production')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,25 +60,40 @@ async def verify_api_key_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     
-    # Verify API key for all API endpoints
+    # Verify API key for all API endpoints except public ones
+    public_endpoints = [
+        "/api/v2/download/",  # Download endpoint should be public for mobile apps
+        "/api/v2/version/check",  # Version check should be public
+        "/api/v2/app-version/check",  # Legacy version check
+        "/api/v2/app-version/latest",  # Latest version endpoint
+        "/api/v2/session/start",  # Session tracking from mobile app
+        "/api/v2/session/",  # All session endpoints
+        "/api/v2/errors/report",  # Error reporting from mobile app
+        "/api/v2/update/status"  # Update status tracking
+    ]
+    
     if request.url.path.startswith("/api/"):
-        api_key = request.headers.get("X-API-Key")
-        if api_key != API_KEY:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "API Key mancante o non valida"}
-            )
+        # Check if this is a public endpoint
+        is_public = any(request.url.path.startswith(endpoint) for endpoint in public_endpoints)
+        
+        if not is_public:
+            api_key = request.headers.get("X-API-Key")
+            if api_key != API_KEY:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "API Key mancante o non valida"}
+                )
     
     response = await call_next(request)
     return response
 
 # Database configuration
 DB_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST', 'tramway.proxy.rlwy.net'),
-    'port': int(os.environ.get('MYSQL_PORT', 20671)),
-    'user': os.environ.get('MYSQL_USER', 'root'),
-    'password': os.environ.get('MYSQL_PASSWORD', 'aBmAHdXPZwvBZBmDeEEmcbtJIagNMYgP'),
-    'database': os.environ.get('MYSQL_DATABASE', 'railway'),
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', 'centerbeam.proxy.rlwy.net')),
+    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', 22032))),
+    'user': os.environ.get('DB_USER', os.environ.get('MYSQL_USER', 'root')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'drypjZgjDSozOUrrJJsyUtNGqkDPVsEd')),
+    'database': os.environ.get('DB_NAME', os.environ.get('MYSQL_DATABASE', 'railway')),
     'charset': 'utf8mb4'
 }
 
@@ -91,6 +115,7 @@ class UserSession(BaseModel):
     app_identifier: str
     user_uuid: str
     email: Optional[str] = None
+    name: Optional[str] = None
     device_info: Optional[Dict[str, Any]] = None
     app_version: str
 
@@ -150,7 +175,7 @@ def get_app_id(app_identifier: str, connection) -> Optional[int]:
         result = cursor.fetchone()
         return result[0] if result else None
 
-def get_or_create_user(user_uuid: str, email: Optional[str], device_info: Optional[Dict], connection) -> int:
+def get_or_create_user(user_uuid: str, email: Optional[str], name: Optional[str], device_info: Optional[Dict], connection, app_id: Optional[int] = None) -> int:
     """Get or create user and return user ID"""
     with connection.cursor() as cursor:
         # Check if user exists
@@ -162,17 +187,25 @@ def get_or_create_user(user_uuid: str, email: Optional[str], device_info: Option
         
         if result:
             user_id = result[0]
-            # Update last seen
+            # Update email, name, and device_info (last_seen_at is auto-generated)
             cursor.execute(
-                "UPDATE app_users SET last_seen_at = NOW(), email = COALESCE(%s, email), device_info = %s WHERE id = %s",
-                (email, json.dumps(device_info) if device_info else None, user_id)
+                "UPDATE app_users SET email = COALESCE(%s, email), name = COALESCE(%s, name), device_info = %s WHERE id = %s",
+                (email, name, json.dumps(device_info) if device_info else None, user_id)
             )
         else:
-            # Create new user
+            # Create new user - need device_id and app_id
+            device_id = device_info.get('device_id', user_uuid) if device_info else user_uuid
+            
+            # If app_id is not provided, try to get default app
+            if not app_id:
+                cursor.execute("SELECT id FROM apps WHERE app_identifier = 'nexa-timesheet' LIMIT 1")
+                app_result = cursor.fetchone()
+                app_id = app_result[0] if app_result else 1  # Default to 1 if not found
+            
             cursor.execute(
-                """INSERT INTO app_users (user_uuid, email, device_info) 
-                   VALUES (%s, %s, %s)""",
-                (user_uuid, email, json.dumps(device_info) if device_info else None)
+                """INSERT INTO app_users (user_uuid, email, name, device_info, app_id, device_id) 
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (user_uuid, email, name, json.dumps(device_info) if device_info else None, app_id, device_id)
             )
             user_id = cursor.lastrowid
         
@@ -348,6 +381,10 @@ async def get_all_versions(
 @app.post("/api/v2/version/check")
 async def check_version(version_data: VersionCheck):
     """Check if update is available for specific app"""
+    # Validate platform
+    if version_data.platform not in ['android', 'ios', 'web']:
+        raise HTTPException(status_code=400, detail="Invalid platform. Must be 'android', 'ios', or 'web'")
+    
     with get_db() as connection:
         app_id = get_app_id(version_data.app_identifier, connection)
         if not app_id:
@@ -358,32 +395,80 @@ async def check_version(version_data: VersionCheck):
         if version_data.user_uuid:
             user_id = get_or_create_user(
                 version_data.user_uuid, 
-                None, 
+                None,  # email
+                None,  # name
                 version_data.device_info,
-                connection
+                connection,
+                app_id
             )
             
             # Update user installation info
             with connection.cursor() as cursor:
+                # First get the version_id if it exists
                 cursor.execute(
-                    """INSERT INTO user_app_installations 
-                       (user_id, app_id, current_version, platform)
-                       VALUES (%s, %s, %s, %s)
-                       ON DUPLICATE KEY UPDATE 
-                       current_version = VALUES(current_version),
-                       platform = VALUES(platform),
-                       last_update_date = NOW()""",
-                    (user_id, app_id, version_data.current_version, version_data.platform)
+                    """SELECT id FROM app_versions 
+                       WHERE app_id = %s AND version = %s AND platform = %s
+                       LIMIT 1""",
+                    (app_id, version_data.current_version, version_data.platform)
                 )
+                version_result = cursor.fetchone()
+                version_id = version_result[0] if version_result else None
+                
+                # Check if user installation exists
+                cursor.execute(
+                    """SELECT id FROM user_app_installations
+                       WHERE user_id = %s AND app_id = %s""",
+                    (user_id, app_id)
+                )
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Update existing
+                    if version_id:
+                        cursor.execute(
+                            """UPDATE user_app_installations 
+                               SET current_version = %s,
+                                   platform = %s,
+                                   app_version_id = %s,
+                                   last_update_date = NOW()
+                               WHERE user_id = %s AND app_id = %s""",
+                            (version_data.current_version, version_data.platform, 
+                             version_id, user_id, app_id)
+                        )
+                    else:
+                        # Update without version_id
+                        cursor.execute(
+                            """UPDATE user_app_installations 
+                               SET current_version = %s,
+                                   platform = %s,
+                                   last_update_date = NOW()
+                               WHERE user_id = %s AND app_id = %s""",
+                            (version_data.current_version, version_data.platform, 
+                             user_id, app_id)
+                        )
+                else:
+                    # Insert new - only if we have a valid version_id
+                    if version_id:
+                        cursor.execute(
+                            """INSERT INTO user_app_installations 
+                               (user_id, app_id, current_version, platform, app_version_id, 
+                                install_date, last_update_date, is_active)
+                               VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), 1)""",
+                            (user_id, app_id, version_data.current_version, 
+                             version_data.platform, version_id)
+                        )
+                    else:
+                        # If version doesn't exist in database, skip installation tracking
+                        logger.warning(f"Version {version_data.current_version} not found in database for platform {version_data.platform}")
                 connection.commit()
         
         # Get latest version
         with connection.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(
                 """SELECT version, version_code, is_mandatory, file_size, 
-                          changelog, release_date
+                          changelog, release_date, platform
                    FROM app_versions
-                   WHERE app_id = %s AND platform IN (%s, 'all') 
+                   WHERE app_id = %s AND (platform = %s OR platform = 'all')
                          AND is_active = true
                    ORDER BY version_code DESC
                    LIMIT 1""",
@@ -403,9 +488,10 @@ async def check_version(version_data: VersionCheck):
             response = {
                 "current_version": version_data.current_version,
                 "latest_version": latest['version'],
+                "platform": latest['platform'],  # Include platform in response
                 "is_update_available": is_update_available,
                 "is_mandatory": bool(latest['is_mandatory']),
-                "download_url": f"/api/v2/download/{version_data.app_identifier}/{version_data.platform}/{latest['version']}",
+                "download_url": f"/api/v2/download/{version_data.app_identifier}/{latest['platform']}/{latest['version']}",
                 "file_size": latest['file_size'],
                 "release_date": latest['release_date'].isoformat() if latest['release_date'] else None,
                 "changelog": json.loads(latest['changelog']) if latest['changelog'] else []
@@ -476,23 +562,49 @@ async def upload_version(
             except:
                 changelog_list = [changelog]
         
-        # For Railway MySQL, we need to check if the file size is within limits
-        # Railway Pro has much higher limits (up to 1GB max_allowed_packet)
-        # Set a reasonable limit for mobile app files
-        RAILWAY_MAX_SIZE = int(os.getenv('MAX_FILE_SIZE_MB', '500')) * 1024 * 1024  # Default 500MB, configurable via env
+        # Decide storage method based on file size
+        USE_FILE_STORAGE_THRESHOLD = 50 * 1024 * 1024  # Use file storage for files > 50MB
+        use_file_storage = file_size > USE_FILE_STORAGE_THRESHOLD or os.getenv('USE_FILE_STORAGE', 'false').lower() == 'true'
         
-        if file_size > RAILWAY_MAX_SIZE:
-            # For larger files, we need to save to filesystem or use cloud storage
-            logger.warning(f"File size {file_size / (1024*1024):.2f}MB exceeds limit of {RAILWAY_MAX_SIZE / (1024*1024)}MB")
+        file_path = None
+        file_blob = None
+        
+        if use_file_storage and storage_manager:
+            # Save to file storage
+            logger.info(f"Using file storage for {file.filename} ({file_size / (1024*1024):.2f}MB)")
             
-            # Option 1: Save reference only (recommended for production)
-            # You would save the file to S3/GCS/local filesystem here
-            # For now, we'll save a smaller placeholder
+            try:
+                # For local development, use local directory
+                if os.getenv('ENVIRONMENT', 'local') == 'local':
+                    storage_manager.base_path = Path('./storage')
+                    storage_manager.ensure_directories()
+                
+                metadata = storage_manager.save_file(
+                    app_id=app_id,
+                    version=version,
+                    platform=platform,
+                    filename=file.filename,
+                    file_content=file_content
+                )
+                file_path = metadata['relative_path']
+                logger.info(f"File saved to: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to save file to storage: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save file to storage: {str(e)}"
+                )
+        else:
+            # Use BLOB storage for smaller files
+            logger.info(f"Using BLOB storage for {file.filename} ({file_size / (1024*1024):.2f}MB)")
+            file_blob = file_content
             
-            raise HTTPException(
-                status_code=413,
-                detail=f"File size {file_size / (1024*1024):.2f}MB exceeds limit of {RAILWAY_MAX_SIZE / (1024*1024)}MB. Please use a smaller file or contact support."
-            )
+            # Check BLOB size limit
+            if file_size > 50 * 1024 * 1024:  # 50MB limit for BLOB
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large for database storage ({file_size / (1024*1024):.2f}MB). Maximum is 50MB."
+                )
         
         # Save to database with retry logic
         max_retries = 3
@@ -500,15 +612,31 @@ async def upload_version(
             try:
                 with connection.cursor() as cursor:
                     # Use smaller chunks and commit immediately
-                    cursor.execute(
-                        """INSERT INTO app_versions 
-                           (app_id, version, platform, version_code, app_file, file_name, 
-                            file_size, file_hash, changelog, is_mandatory)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (app_id, version, platform, version_code, file_content, 
-                         file.filename, file_size, file_hash,
-                         json.dumps(changelog_list), is_mandatory)
-                    )
+                    # Check if file_path column exists
+                    cursor.execute("SHOW COLUMNS FROM app_versions LIKE 'file_path'")
+                    has_file_path = cursor.fetchone() is not None
+                    
+                    if has_file_path:
+                        cursor.execute(
+                            """INSERT INTO app_versions 
+                               (app_id, version, platform, version_code, app_file, file_name, 
+                                file_size, file_hash, file_path, changelog, is_mandatory)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (app_id, version, platform, version_code, file_blob, 
+                             file.filename, file_size, file_hash, file_path,
+                             json.dumps(changelog_list), is_mandatory)
+                        )
+                    else:
+                        # Fallback for old schema
+                        cursor.execute(
+                            """INSERT INTO app_versions 
+                               (app_id, version, platform, version_code, app_file, file_name, 
+                                file_size, file_hash, changelog, is_mandatory)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (app_id, version, platform, version_code, file_blob, 
+                             file.filename, file_size, file_hash,
+                             json.dumps(changelog_list), is_mandatory)
+                        )
                     connection.commit()
                     logger.info(f"Successfully uploaded version {version} for {app_identifier}")
                     break
@@ -573,8 +701,10 @@ async def start_session(session_data: UserSession):
         user_id = get_or_create_user(
             session_data.user_uuid,
             session_data.email,
+            session_data.name,
             session_data.device_info,
-            connection
+            connection,
+            app_id
         )
         
         # Create session
@@ -591,15 +721,15 @@ async def start_session(session_data: UserSession):
             
             cursor.execute(
                 """INSERT INTO user_sessions 
-                   (user_id, app_id, session_uuid, app_version, platform, device_info, start_time, is_active)
-                   VALUES (%s, %s, %s, %s, %s, %s, NOW(), 1)""",
-                (user_id, app_id, session_uuid, session_data.app_version, platform,
+                   (user_id, app_id, session_id, session_uuid, app_version, platform, device_info, is_active)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, 1)""",
+                (user_id, app_id, session_uuid, session_uuid, session_data.app_version, platform,
                  json.dumps(session_data.device_info) if session_data.device_info else None)
             )
-            session_id = cursor.lastrowid
+            db_session_id = cursor.lastrowid
             connection.commit()
             
-        return {"session_id": session_id, "user_id": user_id}
+        return {"session_id": db_session_id, "user_id": user_id, "session_uuid": session_uuid}
 
 @app.post("/api/v2/session/{session_id}/end")
 async def end_session(session_id: int):
@@ -629,7 +759,7 @@ async def report_error(error_data: ErrorReport):
         
         user_id = None
         if error_data.user_uuid:
-            user_id = get_or_create_user(error_data.user_uuid, None, error_data.device_info, connection)
+            user_id = get_or_create_user(error_data.user_uuid, None, None, error_data.device_info, connection, app_id)
         
         with connection.cursor() as cursor:
             cursor.execute(
@@ -764,18 +894,51 @@ async def download_version(app_identifier: str, platform: str, version: str):
             raise HTTPException(status_code=404, detail="App not found")
         
         with connection.cursor() as cursor:
-            cursor.execute(
-                """SELECT app_file, file_name, file_size
-                   FROM app_versions
-                   WHERE app_id = %s AND platform = %s AND version = %s""",
-                (app_id, platform, version)
-            )
-            result = cursor.fetchone()
+            # Check if file_path column exists
+            cursor.execute("SHOW COLUMNS FROM app_versions LIKE 'file_path'")
+            has_file_path = cursor.fetchone() is not None
             
-            if not result:
-                raise HTTPException(status_code=404, detail="Version not found")
-            
-            file_content, file_name, file_size = result
+            if has_file_path:
+                cursor.execute(
+                    """SELECT app_file, file_name, file_size, file_path
+                       FROM app_versions
+                       WHERE app_id = %s AND platform = %s AND version = %s""",
+                    (app_id, platform, version)
+                )
+                result = cursor.fetchone()
+                
+                if not result:
+                    raise HTTPException(status_code=404, detail="Version not found")
+                
+                file_blob, file_name, file_size, file_path = result
+                
+                # Get file content from appropriate storage
+                if file_path and file_path != 'BLOB_STORAGE' and storage_manager:
+                    # Read from file storage
+                    try:
+                        file_content = storage_manager.read_file(file_path)
+                    except Exception as e:
+                        logger.error(f"Failed to read file from storage: {e}")
+                        raise HTTPException(status_code=500, detail="Failed to read file from storage")
+                else:
+                    # Use BLOB content
+                    file_content = file_blob
+                    if not file_content:
+                        raise HTTPException(status_code=404, detail="File content not found")
+            else:
+                # Old schema without file_path
+                cursor.execute(
+                    """SELECT app_file, file_name, file_size
+                       FROM app_versions
+                       WHERE app_id = %s AND platform = %s AND version = %s""",
+                    (app_id, platform, version)
+                )
+                result = cursor.fetchone()
+                
+                if not result:
+                    raise HTTPException(status_code=404, detail="Version not found")
+                
+                file_content, file_name, file_size = result
             
             # Update download count
             cursor.execute(
@@ -804,7 +967,7 @@ async def track_update_status(update_data: UpdateStatus):
         if not app_id:
             raise HTTPException(status_code=404, detail="App not found")
         
-        user_id = get_or_create_user(update_data.user_uuid, None, None, connection)
+        user_id = get_or_create_user(update_data.user_uuid, None, None, None, connection, app_id)
         
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1053,6 +1216,7 @@ async def get_user_details(user_id: int):
                     u.id,
                     u.user_uuid,
                     u.email,
+                    u.name,
                     u.first_seen_at,
                     u.last_seen_at,
                     COUNT(DISTINCT us.id) as total_sessions,
@@ -1085,9 +1249,7 @@ async def get_user_details(user_id: int):
                     uai.current_version,
                     uai.install_date,
                     uai.last_update_date,
-                    uai.is_active,
-                    uai.device_model,
-                    uai.os_version
+                    uai.is_active
                 FROM user_app_installations uai
                 JOIN apps a ON uai.app_id = a.id
                 WHERE uai.user_id = %s
@@ -1188,61 +1350,428 @@ async def get_users(
                 "offset": offset
             }
 
-# Get single user details
-@app.get("/api/v2/users/{user_id}")
-async def get_user_details(user_id: int):
-    """Get detailed information about a specific user"""
+
+# ===== COMPATIBILITY ENDPOINTS FOR FRONTEND =====
+# These endpoints provide backward compatibility for the frontend
+
+@app.get("/api/v2/app-version/latest")
+async def get_latest_version_compat(
+    platform: str = Query('all'),
+    app_identifier: str = Query('nexa-timesheet')
+):
+    """Get latest version for an app (compatibility endpoint)"""
     with get_db() as connection:
+        app_id = get_app_id(app_identifier, connection)
+        if not app_id:
+            raise HTTPException(status_code=404, detail="App not found")
+            
         with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-            # Get user info
             cursor.execute(
-                """SELECT * FROM app_users WHERE id = %s""",
-                (user_id,)
+                """SELECT v.*, a.app_name, a.app_identifier
+                   FROM app_versions v
+                   JOIN apps a ON v.app_id = a.id
+                   WHERE v.app_id = %s AND (v.platform = %s OR v.platform = 'all')
+                         AND v.is_active = true
+                   ORDER BY v.version_code DESC
+                   LIMIT 1""",
+                (app_id, platform)
             )
-            user = cursor.fetchone()
+            version = cursor.fetchone()
             
-            if not user:
-                raise HTTPException(status_code=404, detail="User not found")
+            if not version:
+                raise HTTPException(status_code=404, detail="No version found")
+                
+            # Parse changelog
+            if version['changelog']:
+                try:
+                    version['changelog'] = json.loads(version['changelog'])
+                except:
+                    version['changelog'] = []
+                    
+            return version
+
+@app.get("/api/v2/app-version/check")
+async def check_version_compat(
+    current_version: str = Query(...),
+    platform: str = Query('all'),
+    app_identifier: str = Query('nexa-timesheet')
+):
+    """Check if update is available (compatibility endpoint)"""
+    # Convert to POST format and call existing endpoint
+    version_data = VersionCheck(
+        app_identifier=app_identifier,
+        current_version=current_version,
+        platform=platform
+    )
+    return await check_version(version_data)
+
+@app.get("/api/v2/app-version/files")
+async def list_files_compat(
+    app_identifier: str = Query('nexa-timesheet')
+):
+    """List all version files (compatibility endpoint)"""
+    with get_db() as connection:
+        app_id = get_app_id(app_identifier, connection)
+        if not app_id:
+            raise HTTPException(status_code=404, detail="App not found")
             
-            # Get user's apps
+        with connection.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(
                 """SELECT 
-                    a.app_identifier,
-                    a.app_name,
-                    uai.*
-                FROM user_app_installations uai
-                JOIN apps a ON uai.app_id = a.id
-                WHERE uai.user_id = %s""",
-                (user_id,)
-            )
-            user['installations'] = cursor.fetchall()
-            
-            # Get recent sessions
-            cursor.execute(
-                """SELECT 
-                    us.*,
+                    v.id,
+                    v.version,
+                    v.platform,
+                    v.version_code,
+                    v.file_name,
+                    v.file_size,
+                    v.file_hash,
+                    v.changelog,
+                    v.is_active,
+                    v.is_mandatory,
+                    v.download_count,
+                    v.created_at,
                     a.app_name
-                FROM user_sessions us
-                JOIN apps a ON us.app_id = a.id
-                WHERE us.user_id = %s
-                ORDER BY us.start_time DESC
-                LIMIT 10""",
-                (user_id,)
+                FROM app_versions v
+                JOIN apps a ON v.app_id = a.id
+                WHERE v.app_id = %s
+                ORDER BY v.created_at DESC""",
+                (app_id,)
             )
-            user['recent_sessions'] = cursor.fetchall()
+            files = cursor.fetchall()
             
-            # Get error count
+            # Parse changelog
+            for file in files:
+                if file['changelog']:
+                    try:
+                        file['changelog'] = json.loads(file['changelog'])
+                    except:
+                        file['changelog'] = []
+                        
+            return {"files": files, "total": len(files)}
+
+@app.get("/api/v2/app-version/storage-info")
+async def get_storage_info_compat(
+    app_identifier: str = Query('nexa-timesheet')
+):
+    """Get storage information (compatibility endpoint)"""
+    with get_db() as connection:
+        app_id = get_app_id(app_identifier, connection)
+        if not app_id:
+            raise HTTPException(status_code=404, detail="App not found")
+            
+        with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+            # Get storage stats
             cursor.execute(
-                """SELECT COUNT(*) as error_count
-                FROM app_error_logs
-                WHERE user_id = %s""",
-                (user_id,)
+                """SELECT 
+                    COUNT(*) as total_files,
+                    SUM(file_size) as total_size,
+                    MAX(file_size) as max_file_size,
+                    AVG(file_size) as avg_file_size
+                FROM app_versions
+                WHERE app_id = %s""",
+                (app_id,)
             )
-            user['error_count'] = cursor.fetchone()['error_count']
+            stats = cursor.fetchone()
             
-            return user
+            # Get platform breakdown
+            cursor.execute(
+                """SELECT 
+                    platform,
+                    COUNT(*) as count,
+                    SUM(file_size) as size
+                FROM app_versions
+                WHERE app_id = %s
+                GROUP BY platform""",
+                (app_id,)
+            )
+            platform_stats = cursor.fetchall()
+            
+            return {
+                "total_files": stats['total_files'] or 0,
+                "total_size": int(stats['total_size'] or 0),
+                "max_file_size": int(stats['max_file_size'] or 0),
+                "avg_file_size": int(stats['avg_file_size'] or 0),
+                "platform_breakdown": platform_stats
+            }
+
+@app.delete("/api/v2/app-version/files/{platform}/{version}")
+async def delete_file_compat(
+    platform: str,
+    version: str,
+    app_identifier: str = Query('nexa-timesheet')
+):
+    """Delete a specific version file (compatibility endpoint)"""
+    with get_db() as connection:
+        app_id = get_app_id(app_identifier, connection)
+        if not app_id:
+            raise HTTPException(status_code=404, detail="App not found")
+            
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """DELETE FROM app_versions
+                   WHERE app_id = %s AND platform = %s AND version = %s""",
+                (app_id, platform, version)
+            )
+            
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Version not found")
+                
+            connection.commit()
+            
+            return {
+                "success": True,
+                "message": f"Version {version} for {platform} deleted successfully"
+            }
+
+# Chunked Upload Endpoints for Large Files
+# Temporary storage for upload sessions (in production, use Redis or database)
+upload_sessions = {}
+
+@app.post("/api/v2/version/upload-chunked/start")
+async def start_chunked_upload(
+    app_identifier: str = Form(...),
+    version: str = Form(...),
+    version_code: int = Form(...),
+    platform: str = Form(...),
+    file_size: int = Form(...),
+    file_name: str = Form(...),
+    is_mandatory: bool = Form(False),
+    changelog: Optional[str] = Form(None)
+):
+    """Start a chunked upload session"""
+    with get_db() as connection:
+        app_id = get_app_id(app_identifier, connection)
+        if not app_id:
+            raise HTTPException(status_code=404, detail="App not found")
+    
+    upload_id = str(uuid.uuid4())
+    chunk_size = 5 * 1024 * 1024  # 5MB chunks
+    
+    # Store upload session info
+    upload_sessions[upload_id] = {
+        "app_identifier": app_identifier,
+        "app_id": app_id,
+        "version": version,
+        "version_code": version_code,
+        "platform": platform,
+        "file_name": file_name,
+        "file_size": file_size,
+        "is_mandatory": is_mandatory,
+        "changelog": changelog,
+        "chunks": {},
+        "created_at": datetime.now(),
+        "chunk_size": chunk_size
+    }
+    
+    return {
+        "upload_id": upload_id,
+        "chunk_size": chunk_size,
+        "total_chunks": (file_size + chunk_size - 1) // chunk_size
+    }
+
+@app.post("/api/v2/version/upload-chunked/{upload_id}/chunk/{chunk_number}")
+async def upload_chunk(
+    upload_id: str,
+    chunk_number: int,
+    chunk: UploadFile = File(...)
+):
+    """Upload a single chunk"""
+    if upload_id not in upload_sessions:
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    
+    session = upload_sessions[upload_id]
+    
+    # Check if session is not too old (timeout after 1 hour)
+    if (datetime.now() - session["created_at"]).seconds > 3600:
+        del upload_sessions[upload_id]
+        raise HTTPException(status_code=410, detail="Upload session expired")
+    
+    # Read chunk data
+    chunk_data = await chunk.read()
+    
+    # Store chunk in session
+    session["chunks"][chunk_number] = chunk_data
+    
+    logger.info(f"Received chunk {chunk_number} for upload {upload_id}, size: {len(chunk_data)}")
+    
+    return {
+        "chunk_number": chunk_number,
+        "size": len(chunk_data),
+        "received": True
+    }
+
+@app.post("/api/v2/version/upload-chunked/{upload_id}/complete")
+async def complete_chunked_upload(upload_id: str):
+    """Complete the chunked upload and store in database"""
+    if upload_id not in upload_sessions:
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    
+    session = upload_sessions[upload_id]
+    chunks = session["chunks"]
+    
+    # Verify all chunks are received
+    total_chunks = (session["file_size"] + session["chunk_size"] - 1) // session["chunk_size"]
+    if len(chunks) != total_chunks:
+        missing_chunks = [i for i in range(total_chunks) if i not in chunks]
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Missing chunks: {missing_chunks}"
+        )
+    
+    # Combine chunks
+    logger.info(f"Combining {total_chunks} chunks for upload {upload_id}")
+    file_content = b""
+    for i in range(total_chunks):
+        file_content += chunks[i]
+        logger.info(f"Added chunk {i}, total size now: {len(file_content)} bytes")
+    
+    # Verify file size
+    if len(file_content) != session["file_size"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size mismatch. Expected {session['file_size']}, got {len(file_content)}"
+        )
+    
+    # Calculate hash
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    
+    # Parse changelog
+    changelog_list = []
+    if session["changelog"]:
+        try:
+            changelog_list = json.loads(session["changelog"])
+        except:
+            changelog_list = [session["changelog"]]
+    
+    # Check file size and decide storage method
+    file_size_mb = len(file_content) / (1024 * 1024)
+    logger.info(f"Final file size: {file_size_mb:.2f}MB")
+    
+    # Use file storage for large files
+    USE_FILE_STORAGE_THRESHOLD = 50 * 1024 * 1024  # 50MB
+    use_file_storage = len(file_content) > USE_FILE_STORAGE_THRESHOLD or os.getenv('USE_FILE_STORAGE', 'false').lower() == 'true'
+    
+    file_path = None
+    file_blob = None
+    
+    if use_file_storage and storage_manager:
+        # Save to file storage
+        logger.info(f"Using file storage for chunked upload ({file_size_mb:.2f}MB)")
+        
+        try:
+            # For local development, use local directory
+            if os.getenv('ENVIRONMENT', 'local') == 'local':
+                storage_manager.base_path = Path('./storage')
+                storage_manager.ensure_directories()
+            
+            metadata = storage_manager.save_file(
+                app_id=session["app_id"],
+                version=session["version"],
+                platform=session["platform"],
+                filename=session["file_name"],
+                file_content=file_content
+            )
+            file_path = metadata['relative_path']
+            logger.info(f"File saved to: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to save file to storage: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save file to storage: {str(e)}"
+            )
+    else:
+        # Use BLOB storage
+        if file_size_mb > 50:  # 50MB limit for BLOB
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large ({file_size_mb:.2f}MB). Maximum size is 50MB for database storage."
+            )
+        file_blob = file_content
+    
+    # Save to database with timeout handling
+    with get_db() as connection:
+        try:
+            with connection.cursor() as cursor:
+                # Note: max_allowed_packet is read-only on Railway
+                # We rely on the file size check above instead
+                
+                logger.info(f"Inserting version {session['version']} into database...")
+                
+                # Check if file_path column exists
+                cursor.execute("SHOW COLUMNS FROM app_versions LIKE 'file_path'")
+                has_file_path = cursor.fetchone() is not None
+                
+                if has_file_path:
+                    cursor.execute(
+                        """INSERT INTO app_versions 
+                           (app_id, version, platform, version_code, app_file, file_name, 
+                            file_size, file_hash, file_path, changelog, is_mandatory)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (session["app_id"], session["version"], session["platform"], 
+                         session["version_code"], file_blob, session["file_name"], 
+                         session["file_size"], file_hash, file_path, json.dumps(changelog_list), 
+                         session["is_mandatory"])
+                    )
+                else:
+                    cursor.execute(
+                        """INSERT INTO app_versions 
+                           (app_id, version, platform, version_code, app_file, file_name, 
+                            file_size, file_hash, changelog, is_mandatory)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (session["app_id"], session["version"], session["platform"], 
+                         session["version_code"], file_blob, session["file_name"], 
+                         session["file_size"], file_hash, json.dumps(changelog_list), 
+                         session["is_mandatory"])
+                    )
+                version_id = cursor.lastrowid
+                connection.commit()
+                logger.info(f"Successfully inserted version with ID {version_id}")
+                
+                # Clean up session
+                del upload_sessions[upload_id]
+                
+                logger.info(f"Successfully uploaded version {session['version']} for {session['app_identifier']} via chunked upload")
+                
+                return {
+                    "success": True,
+                    "message": "Version uploaded successfully",
+                    "version_id": version_id,
+                    "version": session["version"],
+                    "platform": session["platform"],
+                    "file_hash": file_hash
+                }
+                
+        except Exception as e:
+            logger.error(f"Database error during chunked upload: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save file to database: {str(e)}"
+            )
+
+# Clean up old upload sessions periodically
+@app.on_event("startup")
+@app.on_event("shutdown")
+async def cleanup_upload_sessions():
+    """Clean up expired upload sessions"""
+    expired_sessions = []
+    for upload_id, session in upload_sessions.items():
+        if (datetime.now() - session["created_at"]).seconds > 3600:  # 1 hour timeout
+            expired_sessions.append(upload_id)
+    
+    for upload_id in expired_sessions:
+        del upload_sessions[upload_id]
+        logger.info(f"Cleaned up expired upload session: {upload_id}")
 
 # Run the application
+# Import file storage only if module exists
+try:
+    from file_storage_api import storage_manager
+except ImportError:
+    storage_manager = None
+    logger.warning("File storage module not available, using BLOB storage only")
+
 if __name__ == "__main__":
     import uvicorn
     # Railway sometimes sets PORT to MySQL port (3306), we need to handle this

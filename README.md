@@ -77,16 +77,16 @@ python flask-implementation.py
 All endpoints follow the same structure as Node.js/PHP implementations:
 
 ### Public Endpoints
-- `GET /api/v1/app-version/check` - Check for updates
-- `GET /api/v1/app-version/latest` - Get latest version info
+- `GET /api/v2/app-version/check` - Check for updates
+- `GET /api/v2/app-version/latest` - Get latest version info
 
 ### Authenticated Endpoints
-- `POST /api/v1/app-version/log-update` - Log user update
+- `POST /api/v2/app-version/log-update` - Log user update
 
 ### Admin Endpoints
-- `GET /api/v1/app-version/history` - Version history
-- `GET /api/v1/app-version/stats` - Update statistics
-- `POST /api/v1/app-version/version` - Create/update version
+- `GET /api/v2/app-version/history` - Version history
+- `GET /api/v2/app-version/stats` - Update statistics
+- `POST /api/v2/app-version/version` - Create/update version
 
 ## Authentication
 
@@ -109,10 +109,10 @@ X-Tenant: NEXA
 ### Test with curl:
 ```bash
 # Check for updates
-curl "http://localhost:8000/api/v1/app-version/check?current_version=1.0.0&platform=android"
+curl "http://localhost:8000/api/v2/app-version/check?current_version=1.0.0&platform=android"
 
 # Log update (requires auth)
-curl -X POST "http://localhost:8000/api/v1/app-version/log-update" \
+curl -X POST "http://localhost:8000/api/v2/app-version/log-update" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -206,8 +206,8 @@ urlpatterns = [
 ### If using Pyramid:
 ```python
 # __init__.py
-config.add_route('check_updates', '/api/v1/app-version/check')
-config.add_route('latest_version', '/api/v1/app-version/latest')
+config.add_route('check_updates', '/api/v2/app-version/check')
+config.add_route('latest_version', '/api/v2/app-version/latest')
 # ... other routes
 ```
 

@@ -102,17 +102,17 @@ const Select = styled.select`
 //   }
 // `;
 
-const FileDropZone = styled.div<{ isDragging: boolean; hasFile: boolean }>`
+const FileDropZone = styled.div<{ $isDragging: boolean; $hasFile: boolean }>`
   border: 2px dashed ${props => 
-    props.hasFile ? '#28a745' : 
-    props.isDragging ? '#1a237e' : '#e1e5e9'
+    props.$hasFile ? '#28a745' : 
+    props.$isDragging ? '#1a237e' : '#e1e5e9'
   };
   border-radius: 8px;
   padding: 2rem;
   text-align: center;
   background: ${props => 
-    props.hasFile ? '#f8fff8' : 
-    props.isDragging ? '#f5f5ff' : '#fafafa'
+    props.$hasFile ? '#f8fff8' : 
+    props.$isDragging ? '#f5f5ff' : '#fafafa'
   };
   cursor: pointer;
   transition: all 0.2s;
@@ -125,8 +125,8 @@ const FileDropZone = styled.div<{ isDragging: boolean; hasFile: boolean }>`
   .upload-icon {
     margin-bottom: 1rem;
     color: ${props => 
-      props.hasFile ? '#28a745' : 
-      props.isDragging ? '#1a237e' : '#666'
+      props.$hasFile ? '#28a745' : 
+      props.$isDragging ? '#1a237e' : '#666'
     };
   }
   
@@ -164,7 +164,7 @@ const ButtonGroup = styled.div`
   margin-top: 1rem;
 `;
 
-const Button = styled.button<{ variant?: 'primary' | 'secondary' }>`
+const Button = styled.button<{ $variant?: 'primary' | 'secondary' }>`
   padding: 0.75rem 1.5rem;
   border: none;
   border-radius: 8px;
@@ -176,7 +176,7 @@ const Button = styled.button<{ variant?: 'primary' | 'secondary' }>`
   align-items: center;
   gap: 0.5rem;
   
-  ${props => props.variant === 'secondary' ? `
+  ${props => props.$variant === 'secondary' ? `
     background: #e1e5e9;
     color: #333;
     
@@ -241,7 +241,7 @@ const ChangelogList = styled.div`
   }
 `;
 
-const Alert = styled.div<{ type: 'success' | 'error' | 'warning' }>`
+const Alert = styled.div<{ type: 'success' | 'error' | 'warning' | 'info' }>`
   padding: 1rem;
   border-radius: 8px;
   margin-bottom: 1rem;
@@ -257,6 +257,8 @@ const Alert = styled.div<{ type: 'success' | 'error' | 'warning' }>`
         return 'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;';
       case 'warning':
         return 'background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;';
+      case 'info':
+        return 'background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb;';
       default:
         return '';
     }
@@ -297,7 +299,8 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
   const [changelogItems, setChangelogItems] = useState<string[]>(['']);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+  const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'warning' | 'info'; message: string } | null>(null);
+  const [useChunkedUpload, setUseChunkedUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [apps, setApps] = useState<App[]>([]);
   const [selectedApp, setSelectedApp] = useState<App | null>(null);
@@ -341,14 +344,26 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
       return;
     }
     
-    // Validazione dimensione (500MB default, configurabile dal backend)
-    const maxSizeMB = 500; // Railway Pro supports up to 1GB but we set a reasonable default
+    // Validazione dimensione - ora supportiamo file fino a 500MB con file storage
+    const maxSizeMB = 500; // Increased limit with file storage support
+    
     if (selectedFile.size > maxSizeMB * 1024 * 1024) {
       setAlert({
         type: 'error',
-        message: `File troppo grande. Dimensione massima: ${maxSizeMB}MB.`
+        message: `File troppo grande (${(selectedFile.size / (1024 * 1024)).toFixed(1)}MB). Il limite massimo è ${maxSizeMB}MB.`
       });
       return;
+    }
+    
+    // Use chunked upload for files > 50MB
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      setUseChunkedUpload(true);
+      setAlert({
+        type: 'info',
+        message: `File grande (${(selectedFile.size / (1024 * 1024)).toFixed(1)}MB). Verrà utilizzato l'upload ottimizzato con storage su disco.`
+      });
+    } else {
+      setUseChunkedUpload(false);
     }
     
     setFile(selectedFile);
@@ -409,6 +424,46 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
     return errors;
   };
 
+  // Chunked upload function
+  const uploadFileChunked = async (
+    file: File,
+    metadata: any,
+    onProgress: (progress: number) => void
+  ) => {
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    
+    // Start upload session
+    const formData = new FormData();
+    Object.keys(metadata).forEach(key => {
+      formData.append(key, metadata[key]);
+    });
+    formData.append('file_size', file.size.toString());
+    formData.append('file_name', file.name);
+    
+    const startResponse = await api.post('/api/v2/version/upload-chunked/start', formData);
+    const { upload_id } = startResponse.data;
+    
+    // Upload chunks
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+      
+      const chunkFormData = new FormData();
+      chunkFormData.append('chunk', chunk);
+      
+      await api.post(`/api/v2/version/upload-chunked/${upload_id}/chunk/${i}`, chunkFormData);
+      
+      const progress = ((i + 1) / totalChunks) * 100;
+      onProgress(progress);
+    }
+    
+    // Complete upload
+    const completeResponse = await api.post(`/api/v2/version/upload-chunked/${upload_id}/complete`);
+    return completeResponse.data;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -428,32 +483,56 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
     setAlert(null);
     
     try {
-      const uploadFormData = new FormData();
-      uploadFormData.append('file', file);
-      uploadFormData.append('version', formData.version!);
-      uploadFormData.append('platform', formData.platform!);
-      uploadFormData.append('version_code', formData.version_code!.toString());
-      uploadFormData.append('is_mandatory', formData.is_mandatory!.toString());
+      let result;
       
-      // Aggiungi app_identifier dall'app selezionata
-      if (selectedApp) {
-        uploadFormData.append('app_identifier', selectedApp.app_identifier);
-      } else if (appIdentifier) {
-        uploadFormData.append('app_identifier', appIdentifier);
+      if (useChunkedUpload && file.size > 50 * 1024 * 1024) {
+        // Use chunked upload for large files
+        const metadata = {
+          app_identifier: selectedApp?.app_identifier || appIdentifier || 'com.nexadata.timesheet',
+          version: formData.version!,
+          platform: formData.platform!,
+          version_code: formData.version_code!.toString(),
+          is_mandatory: formData.is_mandatory!.toString(),
+        };
+        
+        // Add changelog if present
+        const validChanges = changelogItems.filter(item => item.trim());
+        if (validChanges.length > 0) {
+          metadata['changelog'] = createChangelog(validChanges);
+        }
+        
+        result = await uploadFileChunked(file, metadata, (progress) => {
+          setUploadProgress(progress);
+        });
       } else {
-        // Default to nexa-timesheet if no app is selected
-        uploadFormData.append('app_identifier', 'com.nexadata.timesheet');
+        // Use standard upload for smaller files
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', file);
+        uploadFormData.append('version', formData.version!);
+        uploadFormData.append('platform', formData.platform!);
+        uploadFormData.append('version_code', formData.version_code!.toString());
+        uploadFormData.append('is_mandatory', formData.is_mandatory!.toString());
+        
+        // Aggiungi app_identifier dall'app selezionata
+        if (selectedApp) {
+          uploadFormData.append('app_identifier', selectedApp.app_identifier);
+        } else if (appIdentifier) {
+          uploadFormData.append('app_identifier', appIdentifier);
+        } else {
+          // Default to nexa-timesheet if no app is selected
+          uploadFormData.append('app_identifier', 'com.nexadata.timesheet');
+        }
+        
+        // Crea changelog se ci sono modifiche
+        const validChanges = changelogItems.filter(item => item.trim());
+        if (validChanges.length > 0) {
+          uploadFormData.append('changelog', createChangelog(validChanges));
+        }
+        
+        result = await uploadAppFile(uploadFormData, (progress) => {
+          setUploadProgress(progress);
+        });
       }
-      
-      // Crea changelog se ci sono modifiche
-      const validChanges = changelogItems.filter(item => item.trim());
-      if (validChanges.length > 0) {
-        uploadFormData.append('changelog', createChangelog(validChanges));
-      }
-      
-      const result = await uploadAppFile(uploadFormData, (progress) => {
-        setUploadProgress(progress);
-      });
       
       // Handle both v1 and v2 response formats
       const successMessage = result.message || 'Version uploaded successfully';
@@ -531,6 +610,7 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
             {alert.type === 'success' && <CheckCircle size={20} />}
             {alert.type === 'error' && <XCircle size={20} />}
             {alert.type === 'warning' && <AlertCircle size={20} />}
+            {alert.type === 'info' && <AlertCircle size={20} />}
             {alert.message}
           </Alert>
         )}
@@ -604,8 +684,8 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
               📁 File App <span className="required">*</span>
             </label>
             <FileDropZone
-              isDragging={isDragging}
-              hasFile={!!file}
+              $isDragging={isDragging}
+              $hasFile={!!file}
               onClick={() => fileInputRef.current?.click()}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
@@ -617,8 +697,8 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
               </div>
               <div className="upload-hint">
                 {file ? 
-                  `${(file.size / (1024 * 1024)).toFixed(2)} MB - Clicca per cambiare` :
-                  `Massimo 500MB (Railway Pro) - Solo file .${formData.platform === 'android' ? 'apk' : 'ipa'}`
+                  `${(file.size / (1024 * 1024)).toFixed(2)} MB - Clicca per cambiare${useChunkedUpload ? ' (Storage su disco)' : ''}` :
+                  `Massimo 500MB - Solo file .${formData.platform === 'android' ? 'apk' : 'ipa'}`
                 }
               </div>
               <input
@@ -700,11 +780,16 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <Loader className="animate-spin" size={16} />
-                Upload in corso...
+                {useChunkedUpload ? 'Upload a blocchi in corso...' : 'Upload in corso...'}
               </div>
               <ProgressBar $progress={uploadProgress}>
                 <div className="progress-fill" />
               </ProgressBar>
+              {useChunkedUpload && (
+                <small style={{ color: '#666', display: 'block', marginTop: '0.5rem' }}>
+                  Upload ottimizzato per file grandi attivo
+                </small>
+              )}
             </div>
           )}
 
@@ -725,7 +810,7 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess, appIdentifier, on
             
             <Button 
               type="button" 
-              variant="secondary"
+              $variant="secondary"
               onClick={() => {
                 setFile(null);
                 setFormData({

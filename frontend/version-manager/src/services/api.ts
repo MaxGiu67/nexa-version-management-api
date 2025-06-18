@@ -43,7 +43,7 @@ export const healthCheck = async () => {
 
 // Ottieni ultima versione
 export const getLatestVersion = async (platform: string = 'all'): Promise<AppVersion> => {
-  const response = await api.get(`/api/v1/app-version/latest?platform=${platform}`);
+  const response = await api.get(`/api/v2/app-version/latest?platform=${platform}`);
   return response.data;
 };
 
@@ -53,7 +53,7 @@ export const checkForUpdates = async (
   platform: string = 'all'
 ): Promise<CheckUpdateResponse> => {
   const response = await api.get(
-    `/api/v1/app-version/check?current_version=${currentVersion}&platform=${platform}`
+    `/api/v2/app-version/check?current_version=${currentVersion}&platform=${platform}`
   );
   return response.data;
 };
@@ -65,7 +65,7 @@ export const uploadAppFile = async (
 ): Promise<UploadResponse> => {
   // Check if app_identifier is present for v2 API
   const hasAppIdentifier = formData.has('app_identifier');
-  const endpoint = hasAppIdentifier ? '/api/v2/version/upload' : '/api/v1/app-version/upload';
+  const endpoint = '/api/v2/version/upload';
   
   const response = await api.post(endpoint, formData, {
     headers: {
@@ -86,19 +86,19 @@ export const uploadAppFile = async (
 
 // Lista file nel database
 export const listFiles = async (): Promise<{ files: FileInfo[]; total: number }> => {
-  const response = await api.get('/api/v1/app-version/files');
+  const response = await api.get('/api/v2/app-version/files');
   return response.data;
 };
 
 // Informazioni storage
 export const getStorageInfo = async (): Promise<StorageInfo> => {
-  const response = await api.get('/api/v1/app-version/storage-info');
+  const response = await api.get('/api/v2/app-version/storage-info');
   return response.data;
 };
 
 // Elimina file
 export const deleteFile = async (platform: string, version: string): Promise<{ success: boolean; message: string }> => {
-  const response = await api.delete(`/api/v1/app-version/files/${platform}/${version}`);
+  const response = await api.delete(`/api/v2/app-version/files/${platform}/${version}`);
   return response.data;
 };
 

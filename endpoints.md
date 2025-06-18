@@ -2,7 +2,7 @@
 
 ## Base URL
 ```
-https://portaljs.nexadata.it/api/v1
+https://portaljs.nexadata.it/api/v2
 ```
 
 ## Headers Richiesti

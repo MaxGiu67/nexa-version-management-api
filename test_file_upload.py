@@ -29,7 +29,7 @@ def test_upload_and_download():
             'changelog': '{"changes": ["Test upload APK", "File management system"]}'
         }
         
-        response = requests.post(f"{BASE_URL}/api/v1/app-version/upload", files=files, data=data)
+        response = requests.post(f"{BASE_URL}/api/v2/app-version/upload", files=files, data=data)
         
         if response.status_code == 200:
             result = response.json()
@@ -51,7 +51,7 @@ def test_upload_and_download():
             'changelog': '{"changes": ["Test upload IPA", "iOS version"]}'
         }
         
-        response = requests.post(f"{BASE_URL}/api/v1/app-version/upload", files=files, data=data)
+        response = requests.post(f"{BASE_URL}/api/v2/app-version/upload", files=files, data=data)
         
         if response.status_code == 200:
             result = response.json()
@@ -63,7 +63,7 @@ def test_upload_and_download():
     
     # Test 3: Lista file caricati
     print("\n3. Testing file list...")
-    response = requests.get(f"{BASE_URL}/api/v1/app-version/files")
+    response = requests.get(f"{BASE_URL}/api/v2/app-version/files")
     if response.status_code == 200:
         files_data = response.json()
         print(f"✅ Found {len(files_data['files'])} uploaded files:")
@@ -87,7 +87,7 @@ def test_upload_and_download():
     
     # Test 5: Verifica che l'API check updates restituisca i nuovi file
     print("\n5. Testing updated API with file URLs...")
-    response = requests.get(f"{BASE_URL}/api/v1/app-version/check?current_version=1.0.0&platform=android")
+    response = requests.get(f"{BASE_URL}/api/v2/app-version/check?current_version=1.0.0&platform=android")
     if response.status_code == 200:
         data = response.json()
         if data.get('hasUpdate'):
@@ -117,7 +117,7 @@ def test_upload_and_download():
             'version_code': 6
         }
         
-        response = requests.post(f"{BASE_URL}/api/v1/app-version/upload", files=files, data=data)
+        response = requests.post(f"{BASE_URL}/api/v2/app-version/upload", files=files, data=data)
         
         if response.status_code == 400:
             print("✅ Invalid file correctly rejected")

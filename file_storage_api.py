@@ -1,250 +1,121 @@
 """
-File Storage Version Management API
-Saves files to filesystem instead of database BLOB
+File Storage Implementation for Large Files
+Uses Railway persistent volume instead of MySQL BLOB
 """
-
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request, Body
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date, timedelta
-from pydantic import BaseModel, Field
-import pymysql
 import os
+import shutil
+from pathlib import Path
+from typing import Optional
 import hashlib
 import json
-import uuid
-from contextlib import contextmanager
-import logging
-import io
-from pathlib import Path
-import shutil
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI(
-    title="File Storage Version Management API",
-    description="Version management with file system storage",
-    version="3.0.0"
-)
-
-# CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configuration
-API_KEY = os.environ.get('API_KEY', 'nexa_internal_app_key_2025')
-UPLOAD_DIR = Path("./uploaded_files")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
-# API Key verification middleware
-@app.middleware("http")
-async def verify_api_key_middleware(request: Request, call_next):
-    if request.url.path in ["/health", "/docs", "/openapi.json", "/redoc"]:
-        return await call_next(request)
+class FileStorageManager:
+    def __init__(self, base_path: str = "/app/storage"):
+        """
+        Initialize file storage manager
+        On Railway, use persistent volume mounted at /app/storage
+        """
+        self.base_path = Path(base_path)
+        self.ensure_directories()
     
-    if request.method == "OPTIONS":
-        return await call_next(request)
+    def ensure_directories(self):
+        """Create necessary directory structure"""
+        dirs = [
+            self.base_path / "versions",
+            self.base_path / "temp",
+            self.base_path / "backups"
+        ]
+        for dir_path in dirs:
+            dir_path.mkdir(parents=True, exist_ok=True)
     
-    if request.url.path.startswith("/api/"):
-        api_key = request.headers.get("X-API-Key")
-        if api_key != API_KEY:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "API Key missing or invalid"}
-            )
+    def get_file_path(self, app_id: int, version: str, platform: str, filename: str) -> Path:
+        """Generate file path for version file"""
+        # Structure: /app/storage/versions/{app_id}/{platform}/{version}/{filename}
+        path = self.base_path / "versions" / str(app_id) / platform / version
+        path.mkdir(parents=True, exist_ok=True)
+        return path / filename
     
-    response = await call_next(request)
-    return response
-
-# Database configuration
-DB_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST', 'tramway.proxy.rlwy.net'),
-    'port': int(os.environ.get('MYSQL_PORT', 20671)),
-    'user': os.environ.get('MYSQL_USER', 'root'),
-    'password': os.environ.get('MYSQL_PASSWORD', 'aBmAHdXPZwvBZBmDeEEmcbtJIagNMYgP'),
-    'database': os.environ.get('MYSQL_DATABASE', 'railway'),
-    'charset': 'utf8mb4'
-}
-
-# Database connection manager
-@contextmanager
-def get_db():
-    connection = pymysql.connect(**DB_CONFIG)
-    try:
-        yield connection
-    finally:
-        connection.close()
-
-# Helper to save file to disk
-def save_file_to_disk(app_id: int, version: str, platform: str, file_content: bytes, filename: str) -> str:
-    """Save file to disk and return the file path"""
-    # Create directory structure: uploaded_files/app_id/platform/
-    app_dir = UPLOAD_DIR / str(app_id) / platform
-    app_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate unique filename
-    file_ext = Path(filename).suffix
-    safe_version = version.replace(".", "_").replace(" ", "_")
-    file_path = app_dir / f"{safe_version}_{uuid.uuid4().hex[:8]}{file_ext}"
-    
-    # Save file
-    with open(file_path, 'wb') as f:
-        f.write(file_content)
-    
-    return str(file_path.relative_to(UPLOAD_DIR))
-
-# Helper to get app ID
-def get_app_id(app_identifier: str, connection) -> Optional[int]:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT id FROM apps WHERE app_identifier = %s",
-            (app_identifier,)
-        )
-        result = cursor.fetchone()
-        return result[0] if result else None
-
-# File Upload Endpoint
-@app.post("/api/v3/version/upload")
-async def upload_version(
-    app_identifier: str = Form(...),
-    version: str = Form(...),
-    platform: str = Form(...),
-    version_code: int = Form(...),
-    is_mandatory: bool = Form(False),
-    changelog: str = Form(None),
-    file: UploadFile = File(...)
-):
-    """Upload new version with file system storage"""
-    with get_db() as connection:
-        app_id = get_app_id(app_identifier, connection)
-        if not app_id:
-            raise HTTPException(status_code=404, detail="App not found")
+    def save_file(self, app_id: int, version: str, platform: str, 
+                  filename: str, file_content: bytes) -> dict:
+        """Save file to disk and return metadata"""
+        file_path = self.get_file_path(app_id, version, platform, filename)
         
-        # Validate file
-        if platform == "android" and not file.filename.endswith('.apk'):
-            raise HTTPException(status_code=400, detail="Android requires APK file")
-        elif platform == "ios" and not file.filename.endswith('.ipa'):
-            raise HTTPException(status_code=400, detail="iOS requires IPA file")
-        
-        # Read file
-        file_content = await file.read()
-        file_size = len(file_content)
-        
-        logger.info(f"Uploading file: {file.filename}, size: {file_size / (1024*1024):.2f}MB")
+        # Write file
+        with open(file_path, 'wb') as f:
+            f.write(file_content)
         
         # Calculate hash
         file_hash = hashlib.sha256(file_content).hexdigest()
         
-        # Save file to disk
-        file_path = save_file_to_disk(app_id, version, platform, file_content, file.filename)
-        logger.info(f"File saved to: {file_path}")
+        # Create metadata
+        metadata = {
+            "file_path": str(file_path),
+            "relative_path": str(file_path.relative_to(self.base_path)),
+            "size": len(file_content),
+            "hash": file_hash,
+            "created_at": datetime.now().isoformat()
+        }
         
-        # Parse changelog
-        changelog_list = []
-        if changelog:
-            try:
-                changelog_list = json.loads(changelog)
-            except:
-                changelog_list = [changelog]
+        # Save metadata
+        metadata_path = file_path.with_suffix('.json')
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
         
-        # Save metadata to database (without the file content)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """INSERT INTO app_versions 
-                   (app_id, version, platform, version_code, file_path, file_name, 
-                    file_size, file_hash, changelog, is_mandatory)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (app_id, version, platform, version_code, file_path, 
-                 file.filename, file_size, file_hash,
-                 json.dumps(changelog_list), is_mandatory)
-            )
-            connection.commit()
-            
+        return metadata
+    
+    def read_file(self, relative_path: str) -> bytes:
+        """Read file from storage"""
+        file_path = self.base_path / relative_path
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {relative_path}")
+        
+        with open(file_path, 'rb') as f:
+            return f.read()
+    
+    def delete_file(self, relative_path: str) -> bool:
+        """Delete file and its metadata"""
+        file_path = self.base_path / relative_path
+        metadata_path = file_path.with_suffix('.json')
+        
+        if file_path.exists():
+            file_path.unlink()
+        if metadata_path.exists():
+            metadata_path.unlink()
+        
+        # Remove empty directories
+        try:
+            file_path.parent.rmdir()
+            file_path.parent.parent.rmdir()
+        except:
+            pass  # Directory not empty
+        
+        return True
+    
+    def get_storage_stats(self) -> dict:
+        """Get storage usage statistics"""
+        total_size = 0
+        file_count = 0
+        
+        for file_path in self.base_path.rglob("*"):
+            if file_path.is_file() and not file_path.suffix == '.json':
+                total_size += file_path.stat().st_size
+                file_count += 1
+        
         return {
-            "message": "Version uploaded successfully",
-            "app": app_identifier,
-            "version": version,
-            "platform": platform,
-            "file_size": file_size,
-            "file_hash": file_hash,
-            "file_path": file_path
+            "total_files": file_count,
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "total_size_gb": round(total_size / (1024 * 1024 * 1024), 2)
         }
 
-# Download endpoint
-@app.get("/download/{app_identifier}/{platform}/{version}")
-async def download_version(app_identifier: str, platform: str, version: str):
-    """Download specific version file"""
-    with get_db() as connection:
-        app_id = get_app_id(app_identifier, connection)
-        if not app_id:
-            raise HTTPException(status_code=404, detail="App not found")
-        
-        with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-            cursor.execute(
-                """SELECT file_path, file_name, file_size
-                   FROM app_versions 
-                   WHERE app_id = %s AND platform = %s AND version = %s 
-                   AND is_active = true""",
-                (app_id, platform, version)
-            )
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(status_code=404, detail="Version not found")
-            
-            # Update download count
-            cursor.execute(
-                """UPDATE app_versions 
-                   SET download_count = download_count + 1 
-                   WHERE app_id = %s AND platform = %s AND version = %s""",
-                (app_id, platform, version)
-            )
-            connection.commit()
-        
-        # Read file from disk
-        file_path = UPLOAD_DIR / result['file_path']
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
-        
-        return FileResponse(
-            path=file_path,
-            filename=result['file_name'],
-            media_type='application/octet-stream'
-        )
+# Initialize global storage manager
+# Use local path for development, /app/storage for production
+if os.environ.get('ENVIRONMENT', 'local') == 'local':
+    default_path = os.path.join(os.path.dirname(__file__), 'storage')
+else:
+    default_path = '/app/storage'
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "version": "3.0.0", "storage": "filesystem"}
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    # Create required tables if they don't exist
-    with get_db() as connection:
-        with connection.cursor() as cursor:
-            # Check if file_path column exists, if not alter table
-            cursor.execute("""
-                SELECT COLUMN_NAME 
-                FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_NAME = 'app_versions' 
-                AND COLUMN_NAME = 'file_path'
-            """)
-            if not cursor.fetchone():
-                logger.info("Adding file_path column to app_versions table")
-                cursor.execute("""
-                    ALTER TABLE app_versions 
-                    ADD COLUMN file_path VARCHAR(500) DEFAULT NULL
-                """)
-                connection.commit()
-    
-    port = int(os.environ.get("PORT", 8001))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+storage_manager = FileStorageManager(
+    base_path=os.environ.get('STORAGE_PATH', default_path)
+)

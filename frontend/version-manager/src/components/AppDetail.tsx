@@ -149,14 +149,14 @@ const TabHeader = styled.div`
   border-bottom: 1px solid #e0e0e0;
 `;
 
-const Tab = styled.button<{ active: boolean }>`
+const Tab = styled.button<{ $active: boolean }>`
   background: none;
   border: none;
   padding: 16px 24px;
   font-size: 16px;
   cursor: pointer;
-  color: ${props => props.active ? '#1976d2' : '#666'};
-  border-bottom: ${props => props.active ? '2px solid #1976d2' : 'none'};
+  color: ${props => props.$active ? '#1976d2' : '#666'};
+  border-bottom: ${props => props.$active ? '2px solid #1976d2' : 'none'};
   margin-bottom: -1px;
   transition: all 0.2s;
   display: flex;
@@ -432,19 +432,19 @@ const AppDetail: React.FC = () => {
 
       <TabContainer>
         <TabHeader>
-          <Tab active={activeTab === 'versions'} onClick={() => setActiveTab('versions')}>
+          <Tab $active={activeTab === 'versions'} onClick={() => setActiveTab('versions')}>
             <Package size={18} style={{ marginRight: '8px' }} />
             Versioni
           </Tab>
-          <Tab active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>
+          <Tab $active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>
             <TrendingUp size={18} style={{ marginRight: '8px' }} />
             Analytics
           </Tab>
-          <Tab active={activeTab === 'errors'} onClick={() => setActiveTab('errors')}>
+          <Tab $active={activeTab === 'errors'} onClick={() => setActiveTab('errors')}>
             <AlertCircle size={18} style={{ marginRight: '8px' }} />
             Errori {errors.length > 0 && `(${errors.length})`}
           </Tab>
-          <Tab active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')}>
+          <Tab $active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')}>
             <Activity size={18} style={{ marginRight: '8px' }} />
             Sessioni
           </Tab>

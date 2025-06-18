@@ -10,16 +10,16 @@
 
 ### 2. **API Endpoints Core**
 - ✅ `GET /health` - Health check
-- ✅ `GET /api/v1/app-version/check` - Controllo aggiornamenti
-- ✅ `GET /api/v1/app-version/latest` - Ultima versione
+- ✅ `GET /api/v2/app-version/check` - Controllo aggiornamenti
+- ✅ `GET /api/v2/app-version/latest` - Ultima versione
 - ✅ `GET /docs` - Documentazione Swagger automatica
 
 ### 3. **File Management System** 🆕
-- ✅ `POST /api/v1/app-version/upload` - Upload APK/IPA
+- ✅ `POST /api/v2/app-version/upload` - Upload APK/IPA
 - ✅ `GET /download/{platform}/{filename}` - Download diretto
-- ✅ `GET /api/v1/app-version/files` - Lista file caricati
-- ✅ `DELETE /api/v1/app-version/files/{platform}/{filename}` - Elimina file
-- ✅ `GET /api/v1/app-version/upload-form` - Form web per upload
+- ✅ `GET /api/v2/app-version/files` - Lista file caricati
+- ✅ `DELETE /api/v2/app-version/files/{platform}/{filename}` - Elimina file
+- ✅ `GET /api/v2/app-version/upload-form` - Form web per upload
 
 ### 4. **Sicurezza e Validazione**
 - ✅ Validazione formato versione (X.Y.Z)
@@ -64,13 +64,13 @@ python test_file_upload.py  # Testa upload/download
 ```
 
 ### Test 3: Web UI
-Apri browser: http://localhost:8000/api/v1/app-version/upload-form
+Apri browser: http://localhost:8000/api/v2/app-version/upload-form
 
 ## 📱 Funzionalità per l'App Mobile:
 
 ### 1. **Check Aggiornamenti**
 ```typescript
-const updateInfo = await fetch('/api/v1/app-version/check?current_version=1.0.0&platform=android');
+const updateInfo = await fetch('/api/v2/app-version/check?current_version=1.0.0&platform=android');
 // Response include downloadUrl se disponibile
 ```
 
@@ -103,7 +103,7 @@ eas build --platform ios --profile production
 ### 2. **Upload Files**
 ```bash
 # Via API o form web
-curl -X POST "/api/v1/app-version/upload" \
+curl -X POST "/api/v2/app-version/upload" \
   -F "file=@app-release.apk" \
   -F "version=1.3.0" \
   -F "platform=android" \

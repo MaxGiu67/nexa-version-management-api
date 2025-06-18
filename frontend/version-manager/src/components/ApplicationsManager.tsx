@@ -145,9 +145,9 @@ const Actions = styled.div`
   gap: 8px;
 `;
 
-const ActionButton = styled.button<{ variant?: 'danger' }>`
-  background: ${props => props.variant === 'danger' ? '#f44336' : '#f5f5f5'};
-  color: ${props => props.variant === 'danger' ? 'white' : '#666'};
+const ActionButton = styled.button<{ $variant?: 'danger' }>`
+  background: ${props => props.$variant === 'danger' ? '#f44336' : '#f5f5f5'};
+  color: ${props => props.$variant === 'danger' ? 'white' : '#666'};
   border: none;
   padding: 8px;
   border-radius: 8px;
@@ -155,12 +155,12 @@ const ActionButton = styled.button<{ variant?: 'danger' }>`
   transition: all 0.2s;
   
   &:hover {
-    background: ${props => props.variant === 'danger' ? '#d32f2f' : '#e0e0e0'};
+    background: ${props => props.$variant === 'danger' ? '#d32f2f' : '#e0e0e0'};
   }
 `;
 
-const StatusBadge = styled.span<{ active: boolean }>`
-  background: ${props => props.active ? '#4CAF50' : '#f44336'};
+const StatusBadge = styled.span<{ $active: boolean }>`
+  background: ${props => props.$active ? '#4CAF50' : '#f44336'};
   color: white;
   padding: 2px 8px;
   border-radius: 12px;
@@ -259,14 +259,14 @@ const ButtonGroup = styled.div`
   margin-top: 24px;
 `;
 
-const Button = styled.button<{ variant?: 'primary' | 'secondary' }>`
+const Button = styled.button<{ $variant?: 'primary' | 'secondary' }>`
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 16px;
   cursor: pointer;
   transition: all 0.2s;
   
-  ${props => props.variant === 'primary' ? `
+  ${props => props.$variant === 'primary' ? `
     background: #1976d2;
     color: white;
     border: none;
@@ -426,7 +426,7 @@ const ApplicationsManager: React.FC = () => {
                 <AppInfo>
                   <AppName>
                     {app.app_name}
-                    <StatusBadge active={app.is_active}>
+                    <StatusBadge $active={app.is_active}>
                       {app.is_active ? 'Attiva' : 'Inattiva'}
                     </StatusBadge>
                   </AppName>
@@ -445,7 +445,7 @@ const ApplicationsManager: React.FC = () => {
                   }}>
                     <Edit size={16} />
                   </ActionButton>
-                  <ActionButton variant="danger" onClick={() => handleDelete(app)}>
+                  <ActionButton $variant="danger" onClick={() => handleDelete(app)}>
                     <Trash2 size={16} />
                   </ActionButton>
                 </Actions>
@@ -563,7 +563,7 @@ const ApplicationsManager: React.FC = () => {
               }}>
                 Annulla
               </Button>
-              <Button type="submit" variant="primary">
+              <Button type="submit" $variant="primary">
                 {editingApp ? 'Salva Modifiche' : 'Crea Applicazione'}
               </Button>
             </ButtonGroup>

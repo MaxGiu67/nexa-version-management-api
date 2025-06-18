@@ -240,7 +240,7 @@ const ActionButtons = styled.div`
   gap: 0.5rem;
 `;
 
-const Button = styled.button<{ variant?: 'danger' | 'primary' | 'secondary' }>`
+const Button = styled.button<{ $variant?: 'danger' | 'primary' | 'secondary' }>`
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 6px;
@@ -253,7 +253,7 @@ const Button = styled.button<{ variant?: 'danger' | 'primary' | 'secondary' }>`
   gap: 0.5rem;
   
   ${props => {
-    switch (props.variant) {
+    switch (props.$variant) {
       case 'danger':
         return `
           background: #dc3545;
@@ -690,7 +690,7 @@ export const VersionsList: React.FC<Props> = ({ refreshTrigger, appIdentifier })
                       Download
                     </Button>
                     <Button 
-                      variant="danger"
+                      $variant="danger"
                       onClick={() => handleDelete(file)}
                     >
                       <Trash2 size={16} />
