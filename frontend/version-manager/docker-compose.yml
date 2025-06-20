@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  version-manager-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    image: nexadata/version-manager-frontend:latest
+    container_name: version-manager-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=https://nexa-version-management-be.up.railway.app
+      - REACT_APP_API_KEY=nexa_internal_app_key_2025
+    restart: unless-stopped
+    networks:
+      - version-manager-network
+
+  # Optional: Add backend service if needed for local development
+  # version-manager-backend:
+  #   image: nexadata/version-manager-backend:latest
+  #   container_name: version-manager-backend
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - MYSQL_HOST=tramway.proxy.rlwy.net
+  #     - MYSQL_PORT=20671
+  #     - MYSQL_USER=root
+  #     - MYSQL_PASSWORD=aBmAHdXPZwvBZBmDeEEmcbtJIagNMYgP
+  #     - MYSQL_DATABASE=railway
+  #     - API_KEY=nexa_internal_app_key_2025
+  #   restart: unless-stopped
+  #   networks:
+  #     - version-manager-network
+
+networks:
+  version-manager-network:
+    driver: bridge

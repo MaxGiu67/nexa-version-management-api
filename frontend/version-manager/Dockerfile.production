@@ -1,0 +1,53 @@
+# Multi-stage build for production
+# Stage 1: Build the React application
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with npm install (not ci) to handle peer deps better
+RUN npm install --legacy-peer-deps --force
+
+# Fix ajv dependency issue that occurs with react-scripts
+RUN npm install ajv@8.12.0 ajv-keywords@5.1.0 --legacy-peer-deps --force
+
+# Copy source code
+COPY . .
+
+# Set build environment variables
+ENV CI=false
+ENV GENERATE_SOURCEMAP=false
+ENV TSC_COMPILE_ON_ERROR=true
+ENV REACT_APP_API_URL=https://nexa-version-management-be.up.railway.app
+ENV REACT_APP_API_KEY=nexa_internal_app_key_2025
+
+# Build the application
+RUN npm run build
+
+# Stage 2: Production image with nginx
+FROM nginx:alpine
+
+# Copy built files from builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copy nginx configuration for React Router
+RUN echo 'server { \
+    listen 80; \
+    location / { \
+        root /usr/share/nginx/html; \
+        index index.html index.htm; \
+        try_files $uri $uri/ /index.html; \
+    } \
+    error_page 500 502 503 504 /50x.html; \
+    location = /50x.html { \
+        root /usr/share/nginx/html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

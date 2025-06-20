@@ -472,7 +472,9 @@ export const VersionsList: React.FC<Props> = ({ refreshTrigger, appIdentifier })
     const appIdentifier = (file as any).app_identifier;
     const url = `/api/v2/download/${appIdentifier}/${file.platform}/${file.version}`;
     const link = document.createElement('a');
-    link.href = `http://localhost:8000${url}`;
+    // Usa l'API base URL configurata invece di localhost
+    const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    link.href = `${apiBaseUrl}${url}`;
     link.download = file.filename;
     document.body.appendChild(link);
     link.click();

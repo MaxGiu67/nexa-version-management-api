@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { 
   Home, 
@@ -10,7 +10,9 @@ import {
   Database,
   Activity,
   Menu,
-  X
+  X,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { UploadForm } from './components/UploadForm';
@@ -19,6 +21,10 @@ import MainDashboard from './components/MainDashboard';
 import ApplicationsManager from './components/ApplicationsManager';
 import AppDetail from './components/AppDetail';
 import UsersDashboard from './components/UsersDashboard';
+import { Login } from './components/Login';
+import { UserProfile } from './components/UserProfile';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 const AppContainer = styled.div`
   min-height: 100vh;
@@ -161,6 +167,43 @@ const TopBar = styled.header`
   }
 `;
 
+const UserSection = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+  
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #f0f0f0;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+    
+    &:hover {
+      background: #e0e0e0;
+    }
+  }
+  
+  .logout-btn {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 50%;
+    transition: all 0.2s;
+    
+    &:hover {
+      background: #f0f0f0;
+      color: #333;
+    }
+  }
+`;
+
 const ToggleButton = styled.button`
   position: absolute;
   top: 50%;
@@ -222,9 +265,10 @@ const ComingSoon = styled.div`
   }
 `;
 
-function App() {
+function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const { user, token, logout, isAuthenticated } = useAuth();
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -240,111 +284,148 @@ function App() {
     { path: '/upload', icon: Upload, label: 'Upload File' },
     { path: '/versions', icon: List, label: 'Gestisci Versioni' },
     { path: '/users', icon: Users, label: 'Utenti' },
+    { path: '/profile', icon: UserIcon, label: 'Profilo' },
     { path: '/settings', icon: Settings, label: 'Impostazioni', disabled: true },
   ];
 
+  // If not authenticated, show only login page
+  if (!isAuthenticated) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
   return (
-    <Router>
-      <AppContainer>
-        <Sidebar $isOpen={sidebarOpen}>
-          <SidebarHeader $isOpen={sidebarOpen}>
-            <div className="logo">
-              <Database size={20} />
+    <AppContainer>
+      <Sidebar $isOpen={sidebarOpen}>
+        <SidebarHeader $isOpen={sidebarOpen}>
+          <div className="logo">
+            <Database size={20} />
+          </div>
+          <div className="title">Version Manager</div>
+        </SidebarHeader>
+        
+        <Nav>
+          {navigation.map((item) => (
+            <NavItem
+              key={item.path}
+              to={item.path}
+              $isOpen={sidebarOpen}
+              className={({ isActive }) => (isActive && item.exact) ? 'active' : ''}
+              style={{ 
+                opacity: item.disabled ? 0.5 : 1,
+                pointerEvents: item.disabled ? 'none' : 'auto'
+              }}
+            >
+              <item.icon className="icon" size={20} />
+              <span className="label">{item.label}</span>
+            </NavItem>
+          ))}
+        </Nav>
+        
+        <ToggleButton onClick={toggleSidebar}>
+          {sidebarOpen ? <X size={12} /> : <Menu size={12} />}
+        </ToggleButton>
+      </Sidebar>
+
+      <Overlay $show={sidebarOpen} onClick={() => setSidebarOpen(false)} />
+
+      <MainContent $sidebarOpen={sidebarOpen}>
+        <TopBar>
+          <div className="left">
+            <button 
+              className="mobile-menu"
+              onClick={toggleSidebar}
+            >
+              <Menu size={20} />
+            </button>
+            <div className="title">
+              <Routes>
+                <Route path="/" element="📊 Dashboard Multi-App" />
+                <Route path="/apps" element="📱 Gestione Applicazioni" />
+                <Route path="/app/:appIdentifier" element="📱 Dettaglio App" />
+                <Route path="/upload" element="📤 Upload Nuova Versione" />
+                <Route path="/versions" element="📱 Gestione Versioni" />
+                <Route path="/users" element="👥 Gestione Utenti" />
+                <Route path="/profile" element="👤 Profilo Utente" />
+                <Route path="/settings" element="⚙️ Impostazioni" />
+              </Routes>
             </div>
-            <div className="title">Version Manager</div>
-          </SidebarHeader>
-          
-          <Nav>
-            {navigation.map((item) => (
-              <NavItem
-                key={item.path}
-                to={item.path}
-                $isOpen={sidebarOpen}
-                className={({ isActive }) => (isActive && item.exact) ? 'active' : ''}
-                style={{ 
-                  opacity: item.disabled ? 0.5 : 1,
-                  pointerEvents: item.disabled ? 'none' : 'auto'
-                }}
-              >
-                <item.icon className="icon" size={20} />
-                <span className="label">{item.label}</span>
-              </NavItem>
-            ))}
-          </Nav>
-          
-          <ToggleButton onClick={toggleSidebar}>
-            {sidebarOpen ? <X size={12} /> : <Menu size={12} />}
-          </ToggleButton>
-        </Sidebar>
-
-        <Overlay $show={sidebarOpen} onClick={() => setSidebarOpen(false)} />
-
-        <MainContent $sidebarOpen={sidebarOpen}>
-          <TopBar>
-            <div className="left">
-              <button 
-                className="mobile-menu"
-                onClick={toggleSidebar}
-              >
-                <Menu size={20} />
+          </div>
+          <div className="right">
+            <UserSection>
+              <NavLink to="/profile" className="user-info">
+                <UserIcon size={16} />
+                <span>{user?.username || 'User'}</span>
+              </NavLink>
+              <button className="logout-btn" onClick={logout} title="Logout">
+                <LogOut size={18} />
               </button>
-              <div className="title">
-                <Routes>
-                  <Route path="/" element="📊 Dashboard Multi-App" />
-                  <Route path="/apps" element="📱 Gestione Applicazioni" />
-                  <Route path="/app/:appIdentifier" element="📱 Dettaglio App" />
-                  <Route path="/upload" element="📤 Upload Nuova Versione" />
-                  <Route path="/versions" element="📱 Gestione Versioni" />
-                  <Route path="/users" element="👥 Gestione Utenti" />
-                  <Route path="/settings" element="⚙️ Impostazioni" />
-                </Routes>
-              </div>
-            </div>
-            <div className="right">
-              <Activity size={16} />
-              <span>Nexa Timesheet Version Management</span>
-            </div>
-          </TopBar>
+            </UserSection>
+          </div>
+        </TopBar>
 
-          <Routes>
-            <Route 
-              path="/" 
-              element={<MainDashboard />} 
-            />
-            <Route 
-              path="/apps" 
-              element={<ApplicationsManager />} 
-            />
-            <Route 
-              path="/app/:appIdentifier" 
-              element={<AppDetail />} 
-            />
-            <Route 
-              path="/upload" 
-              element={<UploadForm onUploadSuccess={handleUploadSuccess} />} 
-            />
-            <Route 
-              path="/versions" 
-              element={<VersionsList refreshTrigger={refreshTrigger} />} 
-            />
-            <Route 
-              path="/users" 
-              element={<UsersDashboard />} 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ComingSoon>
-                  <Settings className="icon" size={64} />
-                  <h2>Impostazioni</h2>
-                  <p>Configurazione sistema in sviluppo</p>
-                </ComingSoon>
-              } 
-            />
-          </Routes>
-        </MainContent>
-      </AppContainer>
-    </Router>
+        <Routes>
+          <Route path="/" element={
+            <ProtectedRoute>
+              <MainDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/apps" element={
+            <ProtectedRoute>
+              <ApplicationsManager />
+            </ProtectedRoute>
+          } />
+          <Route path="/app/:appIdentifier" element={
+            <ProtectedRoute>
+              <AppDetail />
+            </ProtectedRoute>
+          } />
+          <Route path="/upload" element={
+            <ProtectedRoute>
+              <UploadForm onUploadSuccess={handleUploadSuccess} />
+            </ProtectedRoute>
+          } />
+          <Route path="/versions" element={
+            <ProtectedRoute>
+              <VersionsList refreshTrigger={refreshTrigger} />
+            </ProtectedRoute>
+          } />
+          <Route path="/users" element={
+            <ProtectedRoute>
+              <UsersDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/profile" element={
+            <ProtectedRoute>
+              <UserProfile user={user} authToken={token || ''} />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <ComingSoon>
+                <Settings className="icon" size={64} />
+                <h2>Impostazioni</h2>
+                <p>Configurazione sistema in sviluppo</p>
+              </ComingSoon>
+            </ProtectedRoute>
+          } />
+        </Routes>
+      </MainContent>
+    </AppContainer>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </AuthProvider>
   );
 }
 

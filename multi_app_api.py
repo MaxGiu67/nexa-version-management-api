@@ -3,7 +3,7 @@ Multi-App Version Management API with User Tracking and Error Reporting
 Supports multiple applications, user analytics, and error monitoring
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request, Body
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Optional, List, Dict, Any
@@ -19,6 +19,8 @@ import logging
 import io
 from dotenv import load_dotenv
 from pathlib import Path
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Load environment variables based on environment
 env = os.environ.get('ENVIRONMENT', 'local')
@@ -32,9 +34,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Multi-App Version Management API",
-    description="Gestione versioni per multiple applicazioni con tracking utenti ed errori",
-    version="2.0.0"
+    title="Multi-App Version Management API with Authentication",
+    description="Gestione versioni per multiple applicazioni con tracking utenti, errori e autenticazione 2FA",
+    version="3.0.0"
 )
 
 # CORS configuration
@@ -69,7 +71,9 @@ async def verify_api_key_middleware(request: Request, call_next):
         "/api/v2/session/start",  # Session tracking from mobile app
         "/api/v2/session/",  # All session endpoints
         "/api/v2/errors/report",  # Error reporting from mobile app
-        "/api/v2/update/status"  # Update status tracking
+        "/api/v2/update/status",  # Update status tracking
+        "/api/v2/auth/login",  # Auth endpoints need API key but not auth token
+        "/api/v2/auth/verify-2fa"  # 2FA verification
     ]
     
     if request.url.path.startswith("/api/"):
@@ -89,13 +93,16 @@ async def verify_api_key_middleware(request: Request, call_next):
 
 # Database configuration
 DB_CONFIG = {
-    'host': os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', 'centerbeam.proxy.rlwy.net')),
-    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', 22032))),
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', 'tramway.proxy.rlwy.net')),
+    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', 20671))),
     'user': os.environ.get('DB_USER', os.environ.get('MYSQL_USER', 'root')),
-    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'drypjZgjDSozOUrrJJsyUtNGqkDPVsEd')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'aBmAHdXPZwvBZBmDeEEmcbtJIagNMYgP')),
     'database': os.environ.get('DB_NAME', os.environ.get('MYSQL_DATABASE', 'railway')),
     'charset': 'utf8mb4'
 }
+
+# Add database config to app state for auth module
+app.state.db_config = DB_CONFIG
 
 # Models
 class App(BaseModel):
@@ -1750,6 +1757,84 @@ async def complete_chunked_upload(upload_id: str):
                 detail=f"Failed to save file to database: {str(e)}"
             )
 
+# Import and integrate authentication module
+try:
+    from auth_endpoints import router as auth_router
+    from auth_module import get_current_user, require_superadmin
+    
+    # Include authentication router
+    app.include_router(auth_router)
+    logger.info("Authentication module integrated successfully")
+    
+    # Add protected endpoints that require authentication
+    @app.post("/api/v2/apps/protected", dependencies=[Depends(get_current_user)])
+    async def create_app_protected(
+        app_data: App,
+        current_user = Depends(get_current_user)
+    ):
+        """Create a new app (requires authentication)"""
+        # Use the existing create_app logic
+        return await create_app(app_data)
+    
+    @app.delete("/api/v2/apps/{app_identifier}/protected", dependencies=[Depends(require_superadmin)])
+    async def delete_app_protected(
+        app_identifier: str,
+        current_user = Depends(require_superadmin)
+    ):
+        """Delete an app (requires superadmin)"""
+        return await delete_app(app_identifier)
+    
+    @app.get("/api/v2/admin/dashboard", dependencies=[Depends(require_superadmin)])
+    async def admin_dashboard(current_user = Depends(require_superadmin)):
+        """Get admin dashboard data (superadmin only)"""
+        with get_db() as connection:
+            with connection.cursor() as cursor:
+                # Get total apps
+                cursor.execute("SELECT COUNT(*) as count FROM apps WHERE is_active = TRUE")
+                total_apps = cursor.fetchone()[0]
+                
+                # Get total versions
+                cursor.execute("SELECT COUNT(*) as count FROM app_versions WHERE is_active = TRUE")
+                total_versions = cursor.fetchone()[0]
+                
+                # Get total users
+                cursor.execute("SELECT COUNT(*) as count FROM app_users")
+                total_users = cursor.fetchone()[0]
+                
+                # Get recent activity
+                cursor.execute("""
+                    SELECT 
+                        'session' as type,
+                        CONCAT('User ', au.name, ' started session') as description,
+                        us.start_time as timestamp
+                    FROM user_sessions us
+                    JOIN app_users au ON us.user_id = au.id
+                    ORDER BY us.start_time DESC
+                    LIMIT 10
+                """)
+                recent_activity = []
+                for row in cursor.fetchall():
+                    recent_activity.append({
+                        "type": row[0],
+                        "description": row[1],
+                        "timestamp": row[2].isoformat() if row[2] else None
+                    })
+                
+                return {
+                    "total_apps": total_apps,
+                    "total_versions": total_versions,
+                    "total_users": total_users,
+                    "recent_activity": recent_activity
+                }
+    
+except ImportError:
+    logger.warning("Authentication module not available. Running without authentication.")
+    # Define dummy dependencies if auth module not available
+    async def get_current_user():
+        raise HTTPException(status_code=501, detail="Authentication not implemented")
+    async def require_superadmin():
+        raise HTTPException(status_code=501, detail="Authentication not implemented")
+
 # Clean up old upload sessions periodically
 @app.on_event("startup")
 @app.on_event("shutdown")
@@ -1781,6 +1866,27 @@ if __name__ == "__main__":
     if port == 3306:
         logger.warning(f"PORT {port} is MySQL port, using 8080 instead")
         port = 8080
+    
+    print("\n" + "="*60)
+    print("Multi-App Version Management API with Authentication")
+    print("="*60)
+    print(f"\n📍 Starting server on port {port}")
+    print(f"📚 API Docs: http://localhost:{port}/docs")
+    print(f"🔑 API Key: {API_KEY[:10]}...")
+    
+    # Check if auth module is available
+    try:
+        from auth_module import AuthService
+        print("\n✅ Authentication module loaded successfully")
+        print("\n🔐 Default admin credentials:")
+        print("   Username: admin")
+        print("   Password: admin123")
+        print("\n⚠️  Please change the password after first login!")
+    except ImportError:
+        print("\n⚠️  Authentication module not available")
+        print("   Run 'python integrate_auth.py' to set up authentication")
+    
+    print("\n" + "="*60 + "\n")
     
     logger.info(f"Starting server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

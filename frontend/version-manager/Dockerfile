@@ -1,42 +1,34 @@
-# Build stage
-FROM node:18-alpine as builder
+FROM node:18-alpine
+
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache python3 make g++
-
-# Copy package files
-COPY package*.json ./
-
-# Create npmrc
-RUN echo "legacy-peer-deps=true" > .npmrc
-
-# Install dependencies
-RUN npm install --legacy-peer-deps
-
-# Copy all source files
+# Copy all files
 COPY . .
 
-# List files to debug
-RUN ls -la
-RUN ls -la src/
+# Remove any existing node_modules and package-lock
+RUN rm -rf node_modules package-lock.json
 
-# Set build environment
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-ENV REACT_APP_API_URL=https://nexa-version-management-be.up.railway.app
-ENV REACT_APP_API_KEY=nexa_internal_app_key_2025
+# Install dependencies fresh
+RUN npm install --legacy-peer-deps --force
+
+# Fix specific dependency issues
+RUN npm install ajv@8.12.0 --save-dev --force
+
+# Set environment variables
 ENV CI=false
 ENV GENERATE_SOURCEMAP=false
-ENV SKIP_PREFLIGHT_CHECK=true
+ENV REACT_APP_API_URL=https://nexa-version-management-be.up.railway.app
+ENV REACT_APP_API_KEY=nexa_internal_app_key_2025
 
-# Try to build and show errors
-RUN npm run build 2>&1 || (echo "Build failed with exit code $?" && exit 1)
+# Build the app
+RUN npm run build
 
-# Production stage
-FROM node:18-alpine
-WORKDIR /app
+# Install serve
 RUN npm install -g serve
-COPY --from=builder /app/build ./build
-ENV PORT=3000
-EXPOSE $PORT
-CMD serve -s build -l $PORT
+
+# Expose port
+EXPOSE 3000
+
+# Start command - serve richiede solo la porta, non l'indirizzo
+# Per default serve ascolta su tutte le interfacce (0.0.0.0)
+CMD ["sh", "-c", "serve -s build -l ${PORT:-3000}"]
